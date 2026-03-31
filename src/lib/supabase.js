@@ -1,72 +1,112 @@
 import { createClient } from '@supabase/supabase-js'
 
-// ─── Replace these with your Supabase project credentials ───────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://YOUR_PROJECT.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'YOUR_ANON_KEY'
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * SUPABASE CONFIGURATION
+ * * Instructions:
+ * 1. Replace 'YOUR_PROJECT_URL' with your actual Supabase project URL.
+ * 2. The Anon Key is already set to the key you provided.
+ * 3. For Vercel, ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in Environment Variables.
+ */
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://YOUR_PROJECT_URL.supabase.co'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_NVx4QNDYxLUtRgjDuW6Jqw_uZ8xDVKD'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 /*
-──────────────────────────────────────────────
-  SUPABASE DATABASE SCHEMA  (run in SQL editor)
-──────────────────────────────────────────────
+──────────────────────────────────────────────────────────────────────────────
+  FULL DATABASE OVERHAUL SQL (Run this in Supabase SQL Editor)
+  This fixes the "tagged_opponent_id" error and enables the Feed/Socials.
+──────────────────────────────────────────────────────────────────────────────
 
--- Enable RLS
+-- 1. SETUP EXTENSIONS
 create extension if not exists "uuid-ossp";
 
--- USERS (mirrors auth.users)
-create table public.users (
+-- 2. USERS TABLE (The core profile)
+create table if not exists public.users (
   id          uuid primary key references auth.users(id) on delete cascade,
-  name        text not null,
+  username    text unique not null,
   avatar_url  text,
   created_at  timestamptz default now()
 );
+
+-- 3. GAMES TABLE (The match history & stats)
+create table if not exists public.games (
+  id                  uuid primary key default uuid_generate_v4(),
+  user_id             uuid references public.users(id) on delete cascade not null,
+  sport               text not null check (sport in ('tennis', 'pickleball', 'badminton', 'golf', 'tabletennis')),
+  score               text not null,
+  court_name          text,
+  result              text check (result in ('win', 'loss', 'draw')),
+  opponent_name       text,
+  tagged_opponent_id  uuid references public.users(id),
+  created_at          timestamptz default now()
+);
+
+-- 4. POSTS TABLE (The Global Feed / Network)
+create table if not exists public.posts (
+  id             uuid primary key default uuid_generate_v4(),
+  user_id        uuid references public.users(id) on delete cascade not null,
+  content        text not null,
+  sport          text,
+  location_name  text,
+  inserted_at    timestamptz default now()
+);
+
+-- 5. SOCIAL INTERACTIONS (Likes & Comments)
+create table if not exists public.likes (
+  id       uuid primary key default uuid_generate_v4(),
+  post_id  uuid references public.posts(id) on delete cascade,
+  user_id  uuid references public.users(id) on delete cascade,
+  unique(post_id, user_id)
+);
+
+create table if not exists public.comments (
+  id           uuid primary key default uuid_generate_v4(),
+  post_id      uuid references public.posts(id) on delete cascade,
+  user_id      uuid references public.users(id) on delete cascade,
+  content      text not null,
+  inserted_at  timestamptz default now()
+);
+
+-- 6. SECURITY POLICIES (Fixes "Missing Feed" issues)
 alter table public.users enable row level security;
-create policy "Users are viewable by everyone" on public.users for select using (true);
-create policy "Users can update own profile"   on public.users for update using (auth.uid() = id);
-create policy "Users can insert own profile"   on public.users for insert with check (auth.uid() = id);
-
--- GAMES
-create table public.games (
-  id          uuid primary key default uuid_generate_v4(),
-  user_id     uuid references public.users(id) on delete cascade not null,
-  sport       text not null check (sport in ('badminton', 'pickleball')),
-  score       text not null,
-  location    text,
-  result      text check (result in ('win', 'loss', 'draw')),
-  created_at  timestamptz default now()
-);
 alter table public.games enable row level security;
-create policy "Games are viewable by everyone" on public.games for select using (true);
-create policy "Users can insert own games"     on public.games for insert with check (auth.uid() = user_id);
-create policy "Users can update own games"     on public.games for update using (auth.uid() = user_id);
+alter table public.posts enable row level security;
+alter table public.likes enable row level security;
+alter table public.comments enable row level security;
 
--- GAME PLAYERS (opponents / teammates)
-create table public.game_players (
-  id          uuid primary key default uuid_generate_v4(),
-  game_id     uuid references public.games(id) on delete cascade not null,
-  player_name text not null
-);
-alter table public.game_players enable row level security;
-create policy "Game players viewable by everyone" on public.game_players for select using (true);
-create policy "Users can insert game players"     on public.game_players for insert with check (true);
+-- Allow public viewing for a social experience
+create policy "Public users access" on public.users for select using (true);
+create policy "Public games access" on public.games for select using (true);
+create policy "Public posts access" on public.posts for select using (true);
+create policy "Public likes access" on public.likes for select using (true);
+create policy "Public comments access" on public.comments for select using (true);
 
--- TRIGGER: auto-create user profile on sign-up
+-- Allow users to manage their own data
+create policy "Users manage own games" on public.games for all using (auth.uid() = user_id);
+create policy "Users manage own posts" on public.posts for all using (auth.uid() = user_id);
+create policy "Users manage own likes" on public.likes for all using (auth.uid() = user_id);
+
+-- 7. TRIGGER: Auto-create Profile on Sign-up
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.users (id, name, avatar_url)
+  insert into public.users (id, username, avatar_url)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
     new.raw_user_meta_data->>'avatar_url'
   );
   return new;
 end;
 $$;
 
-create or replace trigger on_auth_user_created
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- 8. THE CACHE FIX (Run this whenever you see 'column not found' errors)
+notify pgrst, 'reload schema';
 */
