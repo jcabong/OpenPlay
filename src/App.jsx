@@ -1,13 +1,15 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { useState, useEffect } from 'react'
-import { supabase } from './lib/supabase' // Corrected path
+import { supabase } from './lib/supabase' 
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import FeedPage from './pages/FeedPage'
 import LogGamePage from './pages/LogGamePage'
 import LeaderboardPage from './pages/LeaderboardPage'
 import ProfilePage from './pages/ProfilePage'
+import EventsPage from './pages/EventsPage'        // Added import
+import HostEventPage from './pages/HostEventPage'  // Added import
 import LoadingScreen from './components/LoadingScreen'
 import UsernameSetup from './components/UsernameSetup'
 
@@ -29,6 +31,8 @@ function ProtectedRoutes() {
         setHasUsername(!!data?.username)
       } catch (err) {
         console.error("Profile check failed", err)
+        // If profile doesn't exist yet, force setup
+        setHasUsername(false)
       } finally {
         setChecking(false)
       }
@@ -50,6 +54,8 @@ function ProtectedRoutes() {
         <Route path="/log"         element={<LogGamePage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route path="/profile"     element={<ProfilePage />} />
+        <Route path="/events"      element={<EventsPage />} />        {/* Added route */}
+        <Route path="/host-event"  element={<HostEventPage />} />     {/* Added route */}
         <Route path="*"            element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
