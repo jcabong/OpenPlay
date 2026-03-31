@@ -63,7 +63,9 @@ function App() {
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <AuthProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
