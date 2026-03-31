@@ -1,97 +1,74 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Trophy, Target, MapPin, Activity } from 'lucide-react'
+import { Settings, Edit2, Check } from 'lucide-react'
 
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const [profile, setProfile] = useState(null)
-  const [userPosts, setUserPosts] = useState([])
-  const [userGames, setUserGames] = useState([])
+  const [games, setGames] = useState([])
+  const [bio, setBio] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  const [selectedSport, setSelectedSport] = useState('basketball')
 
-  useEffect(() => {
-    if (user) fetchAllUserData()
-  }, [user])
+  useEffect(() => { if (user) fetchData() }, [user])
 
-  async function fetchAllUserData() {
-    // 1. Get Profile
+  async function fetchData() {
     const { data: p } = await supabase.from('users').select('*').eq('id', user.id).single()
-    setProfile(p)
-
-    // 2. Get User's Posts
-    const { data: posts } = await supabase.from('posts').select('*').eq('user_id', user.id).order('inserted_at', { ascending: false })
-    setUserPosts(posts || [])
-
-    // 3. Get User's Games
-    const { data: games } = await supabase.from('games').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
-    setUserGames(games || [])
+    const { data: g } = await supabase.from('games').select('*').eq('user_id', user.id)
+    setProfile(p); setBio(p?.bio || ''); setGames(g || [])
   }
 
-  const winRate = userGames.length > 0 
-    ? ((userGames.filter(g => g.result === 'win').length / userGames.length) * 100).toFixed(0) 
-    : 0
+  async function saveBio() {
+    await supabase.from('users').update({ bio }).eq('id', user.id)
+    setIsEditing(false); fetchData()
+  }
+
+  const sportGames = games.filter(g => g.sport === selectedSport)
+  const winRate = sportGames.length > 0 ? ((sportGames.filter(g => g.result === 'win').length / sportGames.length) * 100).toFixed(0) : 0
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-24 px-4 pt-10">
-      {/* Header Section */}
-      <div className="flex flex-col items-center mb-8">
-        <div className="w-24 h-24 bg-accent rounded-[2.5rem] flex items-center justify-center font-display font-bold text-ink-900 text-4xl mb-4 glow-accent">
+    <div className="min-h-screen bg-ink-900 text-ink-50 pb-24 px-6 pt-12">
+      <div className="flex justify-between items-start mb-8">
+        <div className="w-24 h-24 bg-accent rounded-[2.5rem] flex items-center justify-center font-bold text-ink-900 text-4xl glow-accent">
           {profile?.username?.charAt(0).toUpperCase()}
         </div>
-        <h1 className="text-2xl font-display font-bold uppercase italic">@{profile?.username}</h1>
-        <p className="text-ink-500 text-sm">{profile?.name}</p>
+        <button onClick={signOut} className="p-3 glass rounded-2xl text-spark border-spark/20"><Settings size={20}/></button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
-        <div className="glass p-4 rounded-3xl text-center border border-white/5">
-          <p className="text-accent font-display font-bold text-xl">{winRate}%</p>
-          <p className="text-[8px] uppercase font-black text-ink-500 tracking-widest">Win Rate</p>
-        </div>
-        <div className="glass p-4 rounded-3xl text-center border border-white/5">
-          <p className="text-ink-50 font-display font-bold text-xl">{userGames.length}</p>
-          <p className="text-[8px] uppercase font-black text-ink-500 tracking-widest">Games</p>
-        </div>
-        <div className="glass p-4 rounded-3xl text-center border border-white/5">
-          <p className="text-ink-50 font-display font-bold text-xl">#1</p>
-          <p className="text-[8px] uppercase font-black text-ink-500 tracking-widest">Rank</p>
-        </div>
+      <h1 className="text-3xl font-display font-bold uppercase italic">@{profile?.username}</h1>
+      
+      {/* Bio Section */}
+      <div className="mt-2 mb-8">
+        {isEditing ? (
+          <div className="flex flex-col gap-2">
+            <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-ink-100" rows="2" />
+            <button onClick={saveBio} className="bg-accent/20 text-accent font-bold py-2 rounded-lg flex items-center justify-center gap-2 text-xs"><Check size={14}/> SAVE BIO</button>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 group" onClick={() => setIsEditing(true)}>
+            <p className="text-ink-400 text-sm leading-relaxed italic">{profile?.bio || 'Click to add a bio...'}</p>
+            <Edit2 size={12} className="text-ink-600 mt-1 opacity-0 group-hover:opacity-100" />
+          </div>
+        )}
       </div>
 
-      {/* Tabs for Posts / Logs */}
-      <div className="space-y-6">
-        <section>
-          <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-ink-600 mb-4 px-2">
-            <Activity size={14}/> Recent Activity
-          </h2>
-          <div className="space-y-3">
-            {userPosts.map(post => (
-              <div key={post.id} className="glass p-4 rounded-2xl border border-white/5">
-                <p className="text-sm text-ink-100">{post.content}</p>
-                {post.location_name && <span className="text-[9px] text-accent mt-2 block italic">📍 {post.location_name}</span>}
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* Sport Stats Selector */}
+      <div className="flex gap-2 mb-6">
+        {['basketball', 'volleyball', 'pickleball'].map(s => (
+          <button key={s} onClick={() => setSelectedSport(s)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${selectedSport === s ? 'bg-accent text-ink-900' : 'bg-white/5 text-ink-600'}`}>{s}</button>
+        ))}
+      </div>
 
-        <section>
-          <h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-ink-600 mb-4 px-2">
-            <Trophy size={14}/> Game History
-          </h2>
-          <div className="space-y-3">
-            {userGames.map(game => (
-              <div key={game.id} className="glass p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-                <div>
-                  <p className="text-sm font-bold text-ink-50">{game.court_name || 'Open Court'}</p>
-                  <p className="text-[10px] text-ink-500">{new Date(game.created_at).toLocaleDateString()}</p>
-                </div>
-                <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${game.result === 'win' ? 'bg-accent/10 text-accent' : 'bg-spark/10 text-spark'}`}>
-                  {game.result}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="glass p-5 rounded-3xl border border-white/5">
+          <p className="text-accent font-display font-bold text-2xl">{winRate}%</p>
+          <p className="text-[8px] uppercase font-black text-ink-500 tracking-widest mt-1">Win Rate</p>
+        </div>
+        <div className="glass p-5 rounded-3xl border border-white/5">
+          <p className="text-ink-50 font-display font-bold text-2xl">{sportGames.length}</p>
+          <p className="text-[8px] uppercase font-black text-ink-500 tracking-widest mt-1">Matches</p>
+        </div>
       </div>
     </div>
   )
