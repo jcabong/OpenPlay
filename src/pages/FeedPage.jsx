@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
-// Check this path! If FeedPage is in src/pages, and supabaseClient is in src/
-// the path should be '../supabaseClient' (which you have).
-import { supabase } from '../supabaseClient' 
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
 export default function FeedPage() {
-  const { user, loading } = useAuth() // Added 'loading' from your hook
+  const { user, loading } = useAuth()
   const [posts, setPosts] = useState([])
   const [content, setContent] = useState('')
 
@@ -33,20 +31,19 @@ export default function FeedPage() {
 
   async function handleSendPost(e) {
     e.preventDefault()
-    
-    // BUG FIX: Ensure user exists before trying to access user.id
+
     if (!user) {
       alert("You must be logged in to post!")
       return
     }
-    
+
     if (!content.trim()) return
 
     const { error } = await supabase
       .from('posts')
-      .insert([{ 
-        content: content, 
-        user_id: user.id // This will now only run if user is defined
+      .insert([{
+        content: content,
+        user_id: user.id
       }])
 
     if (error) {
@@ -57,29 +54,28 @@ export default function FeedPage() {
     }
   }
 
-  // BUG FIX: Prevent the UI from rendering if the auth state is still loading
   if (loading) return <div style={{ padding: '20px' }}>Loading feed...</div>
 
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', padding: '20px' }}>
       <h2>What's on your mind?</h2>
       <form onSubmit={handleSendPost} style={{ marginBottom: '30px' }}>
-        <textarea 
+        <textarea
           style={{ width: '100%', height: '80px', borderRadius: '8px', padding: '10px', border: '1px solid #ccc' }}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Type @username to mention..."
         />
-        <button 
-          type="submit" 
-          style={{ 
-            marginTop: '10px', 
-            padding: '8px 16px', 
-            backgroundColor: '#007bff', 
-            color: 'white', 
-            border: 'none', 
+        <button
+          type="submit"
+          style={{
+            marginTop: '10px',
+            padding: '8px 16px',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
             borderRadius: '4px',
-            cursor: 'pointer' 
+            cursor: 'pointer'
           }}
         >
           Post to Feed
