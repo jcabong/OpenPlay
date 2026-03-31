@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { useState, useEffect } from 'react'
-import { supabase } from './lib/supabase'
+import { supabase } from './lib/supabase' // Corrected path
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import FeedPage from './pages/FeedPage'
@@ -19,14 +19,19 @@ function ProtectedRoutes() {
   useEffect(() => {
     async function checkUsername() {
       if (!user) return
-      const { data } = await supabase
-        .from('users')
-        .select('username')
-        .eq('id', user.id)
-        .single()
-      
-      setHasUsername(!!data?.username)
-      setChecking(false)
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('username')
+          .eq('id', user.id)
+          .single()
+        
+        setHasUsername(!!data?.username)
+      } catch (err) {
+        console.error("Profile check failed", err)
+      } finally {
+        setChecking(false)
+      }
     }
     checkUsername()
   }, [user])
@@ -34,7 +39,6 @@ function ProtectedRoutes() {
   if (loading || checking) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   
-  // If user has no username, force them to set one
   if (!hasUsername) {
     return <UsernameSetup user={user} onComplete={() => setHasUsername(true)} />
   }
