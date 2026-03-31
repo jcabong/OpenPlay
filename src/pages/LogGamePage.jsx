@@ -20,29 +20,32 @@ export default function LogGamePage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (loading) return
+    if (loading || !user) return
     setLoading(true)
     
-    // 1. Log the Game with all columns
-    const { error: gameError } = await supabase.from('games').insert([{ 
-      user_id: user.id, 
-      ...formData,
-      created_at: new Date()
-    }])
+    try {
+      // 1. Log Game
+      const { error: gameError } = await supabase.from('games').insert([{ 
+        user_id: user.id, 
+        ...formData,
+        created_at: new Date().toISOString()
+      }])
+      if (gameError) throw gameError
 
-    if (gameError) {
-      alert("Error: " + gameError.message)
-    } else {
-      // 2. Create Global Feed Post
+      // 2. Post to Global Feed
       await supabase.from('posts').insert([{
         user_id: user.id,
-        content: `🎾 Played ${formData.sport} at ${formData.court_name}. Score: ${formData.score}. Opponent: ${formData.opponent_name}`,
+        content: `🎾 Just finished a ${formData.sport} match at ${formData.court_name}. Score: ${formData.score}. Vs: ${formData.opponent_name || 'Open Play'}`,
         location_name: formData.court_name,
         sport: formData.sport
       }])
+      
       navigate('/profile')
+    } catch (err) {
+      alert("Save Failed: " + err.message)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
@@ -52,7 +55,7 @@ export default function LogGamePage() {
         <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
           {['tennis', 'pickleball', 'golf', 'tabletennis', 'badminton'].map(s => (
             <button key={s} type="button" onClick={() => setFormData({...formData, sport: s})}
-              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 ${formData.sport === s ? 'bg-accent text-ink-900 border-accent' : 'bg-white/5 border-white/10 text-ink-500'}`}>
+              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${formData.sport === s ? 'bg-accent text-ink-900 border-accent glow-accent' : 'bg-white/5 border-white/10 text-ink-500'}`}>
               {s}
             </button>
           ))}
@@ -61,17 +64,17 @@ export default function LogGamePage() {
         <div className="glass p-6 rounded-[2.5rem] border border-white/10 space-y-4">
           <div className="flex items-center gap-3 bg-white/5 rounded-2xl px-4 border border-white/5">
             <MapPin size={18} className="text-ink-600" />
-            <input className="bg-transparent border-none w-full py-4 text-sm focus:ring-0" placeholder="Tag Location (e.g. Center Court)" 
+            <input className="bg-transparent border-none w-full py-4 text-sm focus:ring-0 text-white" placeholder="Location Name" 
               value={formData.court_name} onChange={e => setFormData({...formData, court_name: e.target.value})} required />
           </div>
 
           <div className="flex items-center gap-3 bg-white/5 rounded-2xl px-4 border border-white/5">
             <Users size={18} className="text-ink-600" />
-            <input className="bg-transparent border-none w-full py-4 text-sm focus:ring-0" placeholder="Tag Opponent (e.g. @player)" 
+            <input className="bg-transparent border-none w-full py-4 text-sm focus:ring-0 text-white" placeholder="Opponent Handle" 
               value={formData.opponent_name} onChange={e => setFormData({...formData, opponent_name: e.target.value})} />
           </div>
 
-          <input className="w-full bg-white/5 border-none rounded-2xl py-4 px-5 text-sm focus:ring-accent" placeholder="Score (e.g. 6-2, 6-4)"
+          <input className="w-full bg-white/5 border-none rounded-2xl py-4 px-5 text-sm focus:ring-accent text-white" placeholder="Score (e.g. 6-2)"
             value={formData.score} onChange={e => setFormData({...formData, score: e.target.value})} />
         </div>
 
@@ -85,7 +88,7 @@ export default function LogGamePage() {
         </div>
 
         <button disabled={loading} className="w-full bg-accent text-ink-900 font-display font-bold py-5 rounded-[2.5rem] glow-accent uppercase italic tracking-tighter text-xl flex items-center justify-center gap-2">
-          {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={20}/> Post & Save</>}
+          {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={20}/> Sync to Feed</>}
         </button>
       </form>
     </div>
