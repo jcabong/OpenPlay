@@ -115,9 +115,13 @@ export default function PostCard({ post, onRefresh }) {
   const hasLiked   = post.likes?.some(l => l.user_id === user?.id)
   const likesCount = post.likes?.length || 0
   const commCount  = post.comments?.length || 0
-  const username   = post.users?.username || 'anon'
+
+  // ✅ Fixed: use post.author (joined via author_id FK) instead of post.users
+  const username   = post.author?.username || 'anon'
   const initial    = username.charAt(0).toUpperCase()
-  const isOwner    = user?.id === post.user_id
+
+  // ✅ Fixed: check against author_id
+  const isOwner    = user?.id === post.author_id
 
   useEffect(() => {
     function outside(e) {
@@ -147,7 +151,8 @@ export default function PostCard({ post, onRefresh }) {
         .filter(Boolean)
       if (paths.length) await supabase.storage.from('openplay-media').remove(paths)
     }
-    await supabase.from('posts').delete().eq('id', post.id).eq('user_id', user.id)
+    // ✅ Fixed: delete using author_id instead of user_id
+    await supabase.from('posts').delete().eq('id', post.id).eq('author_id', user.id)
     setDeleting(false)
     setConfirmDelete(false)
     onRefresh?.()
