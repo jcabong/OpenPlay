@@ -9,9 +9,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Safety timeout — never stay stuck on loading screen
-    const timeout = setTimeout(() => setLoading(false), 5000)
-
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
@@ -24,15 +21,15 @@ export function AuthProvider({ children }) {
       else { setProfile(null); setLoading(false) }
     })
 
-    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
+    return () => subscription.unsubscribe()
   }, [])
 
   async function fetchProfile(userId) {
     try {
       const { data } = await supabase.from('users').select('*').eq('id', userId).single()
-      setProfile(data || null)
+      setProfile(data)
     } catch (err) {
-      console.warn('Profile fetch failed:', err.message)
+      console.error('fetchProfile error:', err)
     } finally {
       setLoading(false)
     }
