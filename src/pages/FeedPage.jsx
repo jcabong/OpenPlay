@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Loader2, RefreshCw, Image, Send, X } from 'lucide-react'
+import { Loader2, RefreshCw, Image, Send, X, Hash } from 'lucide-react'
 import PostCard from '../components/PostCard'
 
 const ALL_SPORTS = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
@@ -12,13 +12,14 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true)
   const [sport, setSport] = useState('all')
 
-  // Composer state
+  // Composer
   const [content, setContent] = useState('')
-  const [postSport, setPostSport] = useState('badminton')
+  const [taggedSport, setTaggedSport] = useState(null) // optional, null = general
   const [mediaFiles, setMediaFiles] = useState([])
   const [mediaPreviews, setMediaPreviews] = useState([])
   const [posting, setPosting] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
+  const [showSportPicker, setShowSportPicker] = useState(false)
   const fileInputRef = useRef(null)
 
   const fetchFeed = useCallback(async () => {
@@ -45,10 +46,9 @@ export default function FeedPage() {
 
   useEffect(() => { fetchFeed() }, [fetchFeed])
 
-  // Realtime subscription
   useEffect(() => {
     const channel = supabase
-      .channel('posts-feed-v2')
+      .channel('posts-feed-v3')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchFeed)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, fetchFeed)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, fetchFeed)
@@ -68,6 +68,15 @@ export default function FeedPage() {
   function removeMedia(index) {
     setMediaFiles(prev => prev.filter((_, i) => i !== index))
     setMediaPreviews(prev => prev.filter((_, i) => i !== index))
+  }
+
+  function resetComposer() {
+    setContent('')
+    setTaggedSport(null)
+    setMediaFiles([])
+    setMediaPreviews([])
+    setComposerOpen(false)
+    setShowSportPicker(false)
   }
 
   async function uploadMedia() {
@@ -94,22 +103,18 @@ export default function FeedPage() {
         : { urls: [], types: [] }
 
       const { error } = await supabase.from('posts').insert([{
-        author_id: user.id,
-        user_id: user.id,
-        content: content.trim(),
-        sport: postSport,
+        author_id:   user.id,
+        user_id:     user.id,
+        content:     content.trim(),
+        sport:       taggedSport || null,   // optional — can be null
         media_urls,
         media_types,
-        created_at: new Date().toISOString(),
+        created_at:  new Date().toISOString(),
         inserted_at: new Date().toISOString(),
       }])
 
       if (error) throw error
-
-      setContent('')
-      setMediaFiles([])
-      setMediaPreviews([])
-      setComposerOpen(false)
+      resetComposer()
       fetchFeed()
     } catch (err) {
       alert('Failed to post: ' + err.message)
@@ -118,97 +123,102 @@ export default function FeedPage() {
     }
   }
 
-  const sportObj = SPORTS.find(s => s.id === postSport)
+  const { profile } = useAuth()
+  const username = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial = username.charAt(0).toUpperCase()
+  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
 
   return (
-    <div className="min-h-screen pb-28" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
+    <div className="min-h-screen">
 
       {/* Header */}
-      <div className="px-5 pt-14 pb-4 flex justify-between items-end">
+      <div className="flex items-center justify-between mb-5 pt-2">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-7 rounded-full" style={{ background: '#c8ff00' }} />
-            <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">Network</h1>
-          </div>
-          <p className="text-xs font-bold uppercase tracking-widest ml-4 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }}>
-            Real-time Feed
+          <h1 className="text-2xl font-black italic uppercase tracking-tighter text-white">Feed</h1>
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.7 }}>
+            Real-time · OpenPlay
           </p>
         </div>
         <button
           onClick={fetchFeed}
-          className="p-2.5 rounded-xl border border-white/10 text-white/40 hover:text-white transition-colors"
-          style={{ background: 'rgba(255,255,255,0.05)' }}
+          className="p-2.5 rounded-xl border border-white/10 transition-colors hover:border-white/20"
+          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}
         >
-          <RefreshCw size={16} />
+          <RefreshCw size={15} />
         </button>
       </div>
 
-      {/* Sport filter */}
-      <div className="flex gap-2 px-5 pb-4 overflow-x-auto no-scrollbar">
+      {/* Sport filter tabs */}
+      <div className="flex gap-2 pb-4 overflow-x-auto no-scrollbar">
         {ALL_SPORTS.map(s => (
           <button
             key={s.id}
             onClick={() => setSport(s.id)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase border-2 shrink-0 transition-all duration-200"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-[10px] font-black uppercase border-2 shrink-0 transition-all"
             style={sport === s.id
-              ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 16px rgba(200,255,0,0.35)' }
-              : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }
+              ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.3)' }
+              : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.45)' }
             }
           >
-            <span>{s.emoji}</span>
-            {s.label}
+            {s.emoji} {s.label}
           </button>
         ))}
       </div>
 
-      {/* Post Composer */}
+      {/* ── Composer ── */}
       {user && (
-        <div className="px-5 mb-5">
+        <div className="mb-5">
           {!composerOpen ? (
-            // Collapsed: tap to open
             <button
               onClick={() => setComposerOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-white/10 text-left transition-all"
-              style={{ background: 'rgba(255,255,255,0.04)' }}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all hover:border-white/20"
+              style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
             >
-              <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
-                style={{ background: '#c8ff00', color: '#0a0a0f' }}
-              >
-                {(user.email?.[0] || 'U').toUpperCase()}
+              <div className="w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shrink-0"
+                style={{ background: avatarBg, color: '#0a0a0f' }}>
+                {initial}
               </div>
-              <span className="text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>What's happening on court?</span>
+              <span className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                What's happening on court?
+              </span>
             </button>
           ) : (
-            // Expanded composer
-            <div className="rounded-3xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="rounded-3xl border overflow-hidden"
+              style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)' }}>
 
-              {/* Sport picker inside composer */}
-              <div className="flex gap-2 p-4 pb-2 overflow-x-auto no-scrollbar">
-                {SPORTS.map(s => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setPostSport(s.id)}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border-2 transition-all"
-                    style={postSport === s.id
-                      ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f' }
-                      : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.45)' }
-                    }
-                  >
-                    {s.emoji} {s.label}
-                  </button>
-                ))}
+              {/* Composer header */}
+              <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+                <div className="w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shrink-0"
+                  style={{ background: avatarBg, color: '#0a0a0f' }}>
+                  {initial}
+                </div>
+                <div>
+                  <p className="text-sm font-black text-white">@{username}</p>
+                  {/* Tagged sport badge */}
+                  {taggedSportObj ? (
+                    <button
+                      onClick={() => setTaggedSport(null)}
+                      className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-lg mt-0.5"
+                      style={{ background: 'rgba(200,255,0,0.12)', color: '#c8ff00' }}
+                    >
+                      {taggedSportObj.emoji} {taggedSportObj.label}
+                      <X size={9} className="ml-1" />
+                    </button>
+                  ) : (
+                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>General post</p>
+                  )}
+                </div>
               </div>
 
               {/* Text area */}
               <div className="px-4 py-2">
                 <textarea
                   autoFocus
-                  className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none text-sm"
-                  style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-                  placeholder={`Share your ${sportObj?.label || 'game'} experience...`}
-                  rows={3}
+                  className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none text-sm leading-relaxed"
+                  style={{ color: '#ffffff', caretColor: '#c8ff00', minHeight: '80px' }}
+                  placeholder="What's on your mind? Use #hashtags, @mentions..."
                   value={content}
                   onChange={e => setContent(e.target.value)}
                 />
@@ -218,7 +228,8 @@ export default function FeedPage() {
               {mediaPreviews.length > 0 && (
                 <div className="grid grid-cols-4 gap-1.5 px-4 pb-3">
                   {mediaPreviews.map((m, i) => (
-                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden"
+                      style={{ background: 'rgba(0,0,0,0.4)' }}>
                       {m.type === 'video'
                         ? <video src={m.url} className="w-full h-full object-cover" />
                         : <img src={m.url} alt="" className="w-full h-full object-cover" />
@@ -235,30 +246,62 @@ export default function FeedPage() {
                 </div>
               )}
 
+              {/* Sport picker dropdown */}
+              {showSportPicker && (
+                <div className="mx-4 mb-3 rounded-2xl border overflow-hidden"
+                  style={{ background: 'rgba(0,0,0,0.4)', borderColor: 'rgba(255,255,255,0.1)' }}>
+                  <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                    <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                      Tag a sport (optional)
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 p-3">
+                    {SPORTS.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => { setTaggedSport(s.id === taggedSport ? null : s.id); setShowSportPicker(false) }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border-2 transition-all"
+                        style={taggedSport === s.id
+                          ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f' }
+                          : { background: 'rgba(255,255,255,0.05)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }
+                        }
+                      >
+                        {s.emoji} {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Action bar */}
-              <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between px-4 py-3 border-t"
+                style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                <div className="flex items-center gap-1">
+                  {/* Photo */}
                   <button
-                    type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 text-xs font-bold transition-colors"
-                    style={{ color: 'rgba(255,255,255,0.4)' }}
+                    className="p-2 rounded-xl transition-colors hover:bg-white/5"
+                    style={{ color: 'rgba(255,255,255,0.45)' }}
+                    title="Add photo/video"
                   >
-                    <Image size={16} />
-                    Photo/Video
+                    <Image size={18} />
                   </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleMediaSelect}
-                  />
+                  <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
+
+                  {/* Tag sport */}
                   <button
-                    type="button"
-                    onClick={() => { setComposerOpen(false); setContent(''); setMediaFiles([]); setMediaPreviews([]) }}
-                    className="text-xs font-bold"
+                    onClick={() => setShowSportPicker(!showSportPicker)}
+                    className="p-2 rounded-xl transition-colors hover:bg-white/5"
+                    style={{ color: taggedSport ? '#c8ff00' : 'rgba(255,255,255,0.45)' }}
+                    title="Tag a sport"
+                  >
+                    <Hash size={18} />
+                  </button>
+
+                  {/* Cancel */}
+                  <button
+                    onClick={resetComposer}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-white/5 ml-1"
                     style={{ color: 'rgba(255,255,255,0.3)' }}
                   >
                     Cancel
@@ -268,8 +311,8 @@ export default function FeedPage() {
                 <button
                   onClick={handlePost}
                   disabled={posting || (!content.trim() && mediaFiles.length === 0)}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-black uppercase transition-all disabled:opacity-40"
-                  style={{ background: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.3)' }}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-black uppercase transition-all disabled:opacity-40 active:scale-95"
+                  style={{ background: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.25)' }}
                 >
                   {posting ? <Loader2 size={13} className="animate-spin" /> : <><Send size={13} /> Post</>}
                 </button>
@@ -279,7 +322,7 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* Posts */}
+      {/* ── Posts ── */}
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="animate-spin" size={28} style={{ color: '#c8ff00' }} />
@@ -288,10 +331,10 @@ export default function FeedPage() {
         <div className="text-center py-20 px-6">
           <p className="text-5xl mb-4">🏸</p>
           <p className="font-black uppercase text-xs tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>No posts yet</p>
-          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.2)' }}>Be the first to log a match!</p>
+          <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.2)' }}>Be the first to post!</p>
         </div>
       ) : (
-        <div className="space-y-4 px-4">
+        <div className="space-y-4">
           {posts.map(post => (
             <PostCard key={post.id} post={post} onRefresh={fetchFeed} />
           ))}
