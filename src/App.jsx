@@ -18,9 +18,19 @@ function ProtectedRoutes() {
   const [hasUsername, setHasUsername] = useState(true)
   const [checking, setChecking]       = useState(true)
 
+  // Safety net — never stuck longer than 6 seconds
   useEffect(() => {
+    const t = setTimeout(() => setChecking(false), 6000)
+    return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    // No user — stop checking immediately, redirect to login
+    if (!user) {
+      setChecking(false)
+      return
+    }
     async function checkProfile() {
-      if (!user) return
       try {
         const { data } = await supabase
           .from('users')
@@ -52,12 +62,13 @@ function ProtectedRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/"        element={<FeedPage />} />
-        <Route path="/log"     element={<LogGamePage />} />
-        <Route path="/ranks"   element={<LeaderboardPage />} />
-        <Route path="/events"  element={<EventsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="*"        element={<Navigate to="/" replace />} />
+        <Route path="/"              element={<FeedPage />} />
+        <Route path="/log"           element={<LogGamePage />} />
+        <Route path="/ranks"         element={<LeaderboardPage />} />
+        <Route path="/events"        element={<EventsPage />} />
+        <Route path="/profile"       element={<ProfilePage />} />
+        <Route path="/profile/:id"   element={<ProfilePage />} />
+        <Route path="*"              element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )
