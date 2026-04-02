@@ -70,14 +70,14 @@ export default function PostCard({ post, onRefresh }) {
       {post.media_urls?.length > 0 && (
         <div className="mb-4 rounded-2xl overflow-hidden bg-ink-800">
           {post.media_types?.[0] === 'video' ? (
-            <div className="relative aspect-video bg-ink-800 flex items-center justify-center">
-              <video src={post.media_urls[0]} className="w-full h-full object-cover" controls />
+            <div className="relative bg-ink-800" style={{ maxHeight: '360px' }}>
+              <video src={post.media_urls[0]} className="w-full object-contain" style={{ maxHeight: '360px' }} controls />
             </div>
           ) : (
-            <div className={`grid gap-1 ${post.media_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            <div className={`grid gap-1 ${post.media_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ maxHeight: '400px' }}>
               {post.media_urls.slice(0, 4).map((url, i) => (
-                <div key={i} className="relative aspect-square">
-                  <img src={url} alt="" className="w-full h-full object-cover" />
+                <div key={i} className="relative overflow-hidden" style={{ maxHeight: post.media_urls.length > 1 ? '200px' : '400px' }}>
+                  <img src={url} alt="" className="w-full h-full object-cover" style={{ maxHeight: post.media_urls.length > 1 ? '200px' : '400px' }} />
                   {i === 3 && post.media_urls.length > 4 && (
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold text-lg">
                       +{post.media_urls.length - 4}

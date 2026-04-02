@@ -9,6 +9,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Safety timeout — never stay stuck on loading screen
+    const timeout = setTimeout(() => setLoading(false), 5000)
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
@@ -21,19 +24,24 @@ export function AuthProvider({ children }) {
       else { setProfile(null); setLoading(false) }
     })
 
-    return () => subscription.unsubscribe()
+    return () => { subscription.unsubscribe(); clearTimeout(timeout) }
   }, [])
 
   async function fetchProfile(userId) {
-    const { data } = await supabase.from('users').select('*').eq('id', userId).single()
-    setProfile(data)
-    setLoading(false)
+    try {
+      const { data } = await supabase.from('users').select('*').eq('id', userId).single()
+      setProfile(data || null)
+    } catch (err) {
+      console.warn('Profile fetch failed:', err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function signInWithGoogle() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin }
+      options: { redirectTo: window.location.origin },
     })
   }
 
@@ -41,8 +49,10 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut()
   }
 
+  const refreshProfile = () => user && fetchProfile(user.id)
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, refreshProfile: () => fetchProfile(user?.id) }}>
+    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
