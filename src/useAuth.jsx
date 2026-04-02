@@ -25,9 +25,14 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function fetchProfile(userId) {
-    const { data } = await supabase.from('users').select('*').eq('id', userId).single()
-    setProfile(data)
-    setLoading(false)
+    try {
+      const { data } = await supabase.from('users').select('*').eq('id', userId).single()
+      setProfile(data)
+    } catch (err) {
+      console.error('fetchProfile error:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function signInWithGoogle() {
