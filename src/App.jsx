@@ -17,11 +17,17 @@ import PublicProfilePage  from './pages/PublicProfilePage'
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
   const [hasUsername, setHasUsername] = useState(true)
-  const [checking, setChecking]       = useState(true)
+  const [checking, setChecking]       = useState(false)
 
   useEffect(() => {
+    if (loading) return
+    if (!user) {
+      setChecking(false)
+      return
+    }
+
     async function checkProfile() {
-      if (!user) return
+      setChecking(true)
       try {
         const { data } = await supabase
           .from('users')
@@ -36,7 +42,7 @@ function ProtectedRoutes() {
       }
     }
     checkProfile()
-  }, [user])
+  }, [user, loading])
 
   if (loading || checking) return <LoadingScreen />
   if (!user)               return <Navigate to="/login" replace />
@@ -54,12 +60,12 @@ function ProtectedRoutes() {
     <Layout>
       <Routes>
         <Route path="/"                element={<FeedPage />} />
-        <Route path="/log"            element={<LogGamePage />} />
-        <Route path="/ranks"          element={<LeaderboardPage />} />
-        <Route path="/events"         element={<EventsPage />} />
-        <Route path="/profile"        element={<ProfilePage />} />
-        <Route path="/user/:username" element={<PublicProfilePage />} />
-        <Route path="*"               element={<Navigate to="/" replace />} />
+        <Route path="/log"             element={<LogGamePage />} />
+        <Route path="/ranks"           element={<LeaderboardPage />} />
+        <Route path="/events"          element={<EventsPage />} />
+        <Route path="/profile"         element={<ProfilePage />} />
+        <Route path="/user/:username"  element={<PublicProfilePage />} />
+        <Route path="*"                element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )
