@@ -1,23 +1,252 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Heart, MessageCircle, Send, Share2, Play } from 'lucide-react'
+import { MapPin, Heart, MessageCircle, Send, Share2, X, ChevronLeft, ChevronRight, CornerDownRight } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
+// ─── Hashtag + mention renderer ───────────────────────────────
+function RichText({ text }) {
+  if (!text) return null
+  const parts = text.split(/(\s+)/)
+  return (
+    <span>
+      {parts.map((word, i) => {
+        if (word.startsWith('#'))
+          return <span key={i} style={{ color: '#c8ff00' }} className="font-bold cursor-pointer hover:underline">{word}</span>
+        if (word.startsWith('@'))
+          return <span key={i} style={{ color: '#60a5fa' }} className="font-bold cursor-pointer hover:underline">{word}</span>
+        return <span key={i}>{word}</span>
+      })}
+    </span>
+  )
+}
+
+// ─── Photo Lightbox ────────────────────────────────────────────
+function Lightbox({ urls, startIndex, onClose }) {
+  const [idx, setIdx] = useState(startIndex)
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.95)' }}
+      onClick={onClose}
+    >
+      <button onClick={onClose} className="absolute top-4 right-4 text-white/70 hover:text-white z-10">
+        <X size={28} />
+      </button>
+      {urls.length > 1 && (
+        <>
+          <button
+            onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + urls.length) % urls.length) }}
+            className="absolute left-4 text-white/70 hover:text-white z-10 p-2"
+          >
+            <ChevronLeft size={32} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); setIdx(i => (i + 1) % urls.length) }}
+            className="absolute right-4 text-white/70 hover:text-white z-10 p-2"
+          >
+            <ChevronRight size={32} />
+          </button>
+        </>
+      )}
+      <img
+        src={urls[idx]}
+        alt=""
+        className="object-contain rounded-xl"
+        style={{ maxHeight: '90vh', maxWidth: '90vw' }}
+        onClick={e => e.stopPropagation()}
+      />
+      {urls.length > 1 && (
+        <div className="absolute bottom-4 flex gap-2">
+          {urls.map((_, i) => (
+            <div key={i} className="w-2 h-2 rounded-full transition-all"
+              style={{ background: i === idx ? '#c8ff00' : 'rgba(255,255,255,0.3)' }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Single Comment with like + reply ─────────────────────────
+function CommentItem({ comment, postId, user, onRefresh, depth = 0 }) {
+  const [replying, setReplying] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [showReplies, setShowReplies] = useState(false)
+
+  const hasLiked = comment.comment_likes?.some(l => l.user_id === user?.id)
+  const likeCount = comment.comment_likes?.length || 0
+  const replyCount = comment.replies?.length || 0
+  const username = comment.users?.username || 'anon'
+
+  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+
+  async function toggleLike() {
+    if (!user) return
+    if (hasLiked) {
+      await supabase.from('comment_likes').delete().eq('comment_id', comment.id).eq('user_id', user.id)
+    } else {
+      await supabase.from('comment_likes').insert([{ comment_id: comment.id, user_id: user.id }])
+    }
+    onRefresh?.()
+  }
+
+  async function submitReply() {
+    if (!replyText.trim() || !user) return
+    setSubmitting(true)
+    await supabase.from('comments').insert([{
+      post_id: postId,
+      user_id: user.id,
+      content: replyText.trim(),
+      parent_id: comment.id,
+      created_at: new Date().toISOString(),
+    }])
+    setReplyText('')
+    setReplying(false)
+    setShowReplies(true)
+    setSubmitting(false)
+    onRefresh?.()
+  }
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return ''
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h`
+    return `${Math.floor(hrs / 24)}d`
+  }
+
+  return (
+    <div className={depth > 0 ? 'ml-9 mt-2' : ''}>
+      <div className="flex gap-2.5">
+        <div
+          className="w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs shrink-0"
+          style={{ background: avatarBg, color: '#0a0a0f' }}
+        >
+          {username.charAt(0).toUpperCase()}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="rounded-2xl rounded-tl-sm px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.07)' }}>
+            <span className="text-xs font-black mr-2" style={{ color: '#c8ff00' }}>@{username}</span>
+            <span className="text-xs" style={{ color: 'rgba(255,255,255,0.85)' }}>
+              <RichText text={comment.content} />
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4 mt-1 ml-1">
+            <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              {timeAgo(comment.created_at)}
+            </span>
+            <button
+              onClick={toggleLike}
+              className="flex items-center gap-1 text-[10px] font-bold transition-colors"
+              style={{ color: hasLiked ? '#c8ff00' : 'rgba(255,255,255,0.35)' }}
+            >
+              <Heart size={11} className={hasLiked ? 'fill-current' : ''} />
+              {likeCount > 0 && <span>{likeCount}</span>}
+              <span className="ml-0.5">Like</span>
+            </button>
+            {depth === 0 && (
+              <button
+                onClick={() => setReplying(!replying)}
+                className="text-[10px] font-bold transition-colors"
+                style={{ color: 'rgba(255,255,255,0.35)' }}
+              >
+                Reply
+              </button>
+            )}
+            {replyCount > 0 && depth === 0 && (
+              <button
+                onClick={() => setShowReplies(!showReplies)}
+                className="flex items-center gap-1 text-[10px] font-bold"
+                style={{ color: '#60a5fa' }}
+              >
+                <CornerDownRight size={10} />
+                {showReplies ? 'Hide replies' : `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
+              </button>
+            )}
+          </div>
+
+          {replying && (
+            <div className="flex gap-2 mt-2">
+              <input
+                autoFocus
+                value={replyText}
+                onChange={e => setReplyText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && submitReply()}
+                placeholder={`Reply to @${username}...`}
+                className="flex-1 rounded-xl px-3 py-2 text-xs border-none focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', caretColor: '#c8ff00' }}
+              />
+              <button
+                onClick={submitReply}
+                disabled={submitting || !replyText.trim()}
+                className="px-3 py-2 rounded-xl text-xs font-black disabled:opacity-40 flex items-center"
+                style={{ background: '#c8ff00', color: '#0a0a0f' }}
+              >
+                <Send size={12} />
+              </button>
+            </div>
+          )}
+
+          {showReplies && comment.replies?.map(reply => (
+            <CommentItem key={reply.id} comment={reply} postId={postId} user={user} onRefresh={onRefresh} depth={1} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main PostCard ─────────────────────────────────────────────
 export default function PostCard({ post, onRefresh }) {
   const { user } = useAuth()
   const [showComments, setShowComments] = useState(false)
-  const [newComment, setNewComment]     = useState('')
-  const [submitting, setSubmitting]     = useState(false)
+  const [newComment, setNewComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
 
-  const sport      = SPORT_MAP[post.sport] || {}
-  const hasLiked   = post.likes?.some(l => l.user_id === user?.id)
+  const sport = SPORT_MAP[post.sport] || {}
+  const hasLiked = post.likes?.some(l => l.user_id === user?.id)
   const likesCount = post.likes?.length || 0
-  const commCount  = post.comments?.length || 0
-  const postUser   = post.author || post.users || {}
-  const username   = postUser.username || 'anon'
-  const initial    = username.charAt(0).toUpperCase()
-  const profileId  = post.author_id || post.user_id
+  const postUser = post.author || post.users || {}
+  const username = postUser.username || 'anon'
+  const profileId = post.author_id || post.user_id
+
+  const topComments = (post.comments || []).filter(c => !c.parent_id)
+  const replies = (post.comments || []).filter(c => c.parent_id)
+  const commentsWithReplies = topComments.map(c => ({
+    ...c,
+    replies: replies.filter(r => r.parent_id === c.id)
+  }))
+  const totalComments = post.comments?.length || 0
+
+  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+
+  const mediaUrls = post.media_urls || []
+  const mediaTypes = post.media_types || []
+  const imageUrls = mediaUrls.filter((_, i) => mediaTypes[i] !== 'video')
+  const videoUrl = mediaUrls.find((_, i) => mediaTypes[i] === 'video')
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return ''
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    if (days < 7) return `${days}d ago`
+    return new Date(dateStr).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+  }
 
   async function toggleLike() {
     if (!user) return
@@ -33,131 +262,175 @@ export default function PostCard({ post, onRefresh }) {
     e.preventDefault()
     if (!newComment.trim() || !user) return
     setSubmitting(true)
-    await supabase.from('comments').insert([{ post_id: post.id, user_id: user.id, content: newComment.trim() }])
+    await supabase.from('comments').insert([{
+      post_id: post.id,
+      user_id: user.id,
+      content: newComment.trim(),
+      created_at: new Date().toISOString(),
+    }])
     setNewComment('')
     setSubmitting(false)
     onRefresh?.()
   }
 
-  const avatarColors = ['bg-accent text-ink-900','bg-spark text-white','bg-blue-500 text-white','bg-purple-500 text-white']
-  const avatarColor = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  // Media grid heights — Twitter/Facebook style
+  const gridConfig = {
+    1: { cols: 'grid-cols-1', height: () => '400px' },
+    2: { cols: 'grid-cols-2', height: () => '260px' },
+    3: { cols: 'grid-cols-3', height: () => '200px' },
+    4: { cols: 'grid-cols-2', height: () => '200px' },
+  }
+  const grid = gridConfig[Math.min(imageUrls.length, 4)] || gridConfig[4]
 
   return (
-    <article className="glass rounded-[2.5rem] p-5 border border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent animate-slide-up">
+    <>
+      {lightbox !== null && imageUrls.length > 0 && (
+        <Lightbox urls={imageUrls} startIndex={lightbox} onClose={() => setLightbox(null)} />
+      )}
 
-      {/* Header */}
-      <Link to={`/profile/${profileId}`} className="flex items-center gap-3 mb-4 group">
-        <div className={`w-10 h-10 rounded-[0.75rem] flex items-center justify-center font-bold text-sm shrink-0 ${avatarColor}`}>
-          {initial}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-ink-50 font-display font-bold text-sm tracking-tight leading-none mb-0.5 group-hover:text-accent transition-colors">
-            @{username}
-          </p>
-          <div className="flex items-center gap-2 text-ink-600 text-[9px] font-black uppercase tracking-widest">
-            <span>{new Date(post.inserted_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</span>
-            {post.city && <><span>·</span><span>{post.city}</span></>}
+      <article className="rounded-3xl border overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}>
+
+        {/* ── Header ── */}
+        <div className="flex items-start gap-3 p-4 pb-3">
+          <Link to={`/profile/${profileId}`} className="shrink-0">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm"
+              style={{ background: avatarBg, color: '#0a0a0f' }}>
+              {username.charAt(0).toUpperCase()}
+            </div>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <Link to={`/profile/${profileId}`}>
+              <p className="font-black text-sm text-white hover:underline leading-tight">@{username}</p>
+            </Link>
+            <div className="flex items-center gap-2 flex-wrap mt-0.5">
+              <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                {timeAgo(post.created_at || post.inserted_at)}
+              </span>
+              {(post.city || post.location_name) && (
+                <span className="flex items-center gap-1 text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                  <MapPin size={9} style={{ color: '#c8ff00' }} />
+                  {post.location_name || post.city}
+                </span>
+              )}
+              {sport.emoji && (
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-lg"
+                  style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+                  {sport.emoji} {sport.label}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        {sport.emoji && (
-          <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-lg badge-${post.sport}`}>
-            {sport.emoji} {sport.label}
-          </span>
-        )}
-      </Link>
 
-      {/* Media */}
-      {post.media_urls?.length > 0 && (
-        <div className="mb-4 rounded-2xl overflow-hidden bg-ink-800">
-          {post.media_types?.[0] === 'video' ? (
-            <div className="relative bg-ink-800" style={{ maxHeight: '360px' }}>
-              <video src={post.media_urls[0]} className="w-full object-contain" style={{ maxHeight: '360px' }} controls />
-            </div>
-          ) : (
-            <div className={`grid gap-1 ${post.media_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`} style={{ maxHeight: '400px' }}>
-              {post.media_urls.slice(0, 4).map((url, i) => (
-                <div key={i} className="relative overflow-hidden" style={{ maxHeight: post.media_urls.length > 1 ? '200px' : '400px' }}>
-                  <img src={url} alt="" className="w-full h-full object-cover" style={{ maxHeight: post.media_urls.length > 1 ? '200px' : '400px' }} />
-                  {i === 3 && post.media_urls.length > 4 && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold text-lg">
-                      +{post.media_urls.length - 4}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      {post.content && (
-        <p className="text-ink-100 text-sm leading-relaxed mb-4">{post.content}</p>
-      )}
-
-      {/* Tags */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {post.location_name && (
-          <div className="flex items-center gap-1 text-ink-500 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
-            <MapPin size={9} className="text-accent" />
-            <span className="text-[9px] font-black uppercase tracking-tight">{post.location_name}</span>
+        {/* ── Caption ── */}
+        {post.content && (
+          <div className="px-4 pb-3 text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.9)' }}>
+            <RichText text={post.content} />
           </div>
         )}
-      </div>
 
-      {/* Action bar */}
-      <div className="flex gap-5 pt-3 border-t border-white/5">
-        <button
-          onClick={toggleLike}
-          className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${hasLiked ? 'text-accent' : 'text-ink-600 hover:text-ink-300'}`}
-        >
-          <Heart size={16} className={hasLiked ? 'fill-accent' : ''} />
-          GG {likesCount > 0 && `(${likesCount})`}
-        </button>
+        {/* ── Video ── */}
+        {videoUrl && (
+          <video src={videoUrl} className="w-full object-contain" style={{ maxHeight: '360px', background: '#000' }} controls />
+        )}
 
-        <button
-          onClick={() => setShowComments(!showComments)}
-          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-600 hover:text-ink-300 transition-colors"
-        >
-          <MessageCircle size={16} />
-          Comment {commCount > 0 && `(${commCount})`}
-        </button>
+        {/* ── Photo grid ── */}
+        {imageUrls.length > 0 && (
+          <div className={`grid gap-0.5 ${grid.cols}`}>
+            {imageUrls.slice(0, 4).map((url, i) => (
+              <div
+                key={i}
+                className="relative cursor-pointer overflow-hidden"
+                style={{ height: grid.height(i) }}
+                onClick={() => setLightbox(i)}
+              >
+                <img src={url} alt="" className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+                {i === 3 && imageUrls.length > 4 && (
+                  <div className="absolute inset-0 flex items-center justify-center font-black text-2xl text-white"
+                    style={{ background: 'rgba(0,0,0,0.55)' }}>
+                    +{imageUrls.length - 4}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-        <button className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-600 hover:text-ink-300 transition-colors ml-auto">
-          <Share2 size={14} />
-        </button>
-      </div>
+        {/* ── Action bar ── */}
+        <div className="flex items-center gap-1 px-3 py-1.5 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <button
+            onClick={toggleLike}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase transition-all hover:bg-white/5 active:scale-95"
+            style={{ color: hasLiked ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
+          >
+            <Heart size={16} className={hasLiked ? 'fill-current' : ''} />
+            GG {likesCount > 0 && `· ${likesCount}`}
+          </button>
 
-      {/* Comments */}
-      {showComments && (
-        <div className="mt-4 pt-4 border-t border-white/5 space-y-3 animate-slide-up">
-          {post.comments?.length > 0 && (
-            <div className="space-y-2">
-              {post.comments.map(c => (
-                <div key={c.id} className="text-[11px] bg-white/[0.02] px-3 py-2 rounded-xl border border-white/5">
-                  <span className="text-accent font-bold mr-2">@{c.users?.username}</span>
-                  <span className="text-ink-300">{c.content}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <form onSubmit={submitComment} className="flex gap-2">
-            <input
-              value={newComment}
-              onChange={e => setNewComment(e.target.value)}
-              placeholder="Add a comment..."
-              className="flex-1 bg-ink-800 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-accent/50 outline-none transition-colors"
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              className="p-2.5 bg-accent text-ink-900 rounded-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-            >
-              <Send size={13} />
-            </button>
-          </form>
+          <button
+            onClick={() => setShowComments(!showComments)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase transition-all hover:bg-white/5 active:scale-95"
+            style={{ color: showComments ? '#60a5fa' : 'rgba(255,255,255,0.4)' }}
+          >
+            <MessageCircle size={16} />
+            Comment {totalComments > 0 && `· ${totalComments}`}
+          </button>
+
+          <button
+            onClick={() => navigator.share?.({ url: window.location.href }) || navigator.clipboard?.writeText(window.location.href)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase transition-all hover:bg-white/5 active:scale-95 ml-auto"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+          >
+            <Share2 size={14} />
+          </button>
         </div>
-      )}
-    </article>
+
+        {/* ── Comments ── */}
+        {showComments && (
+          <div className="border-t px-4 py-3 space-y-3" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+
+            {/* Input */}
+            <form onSubmit={submitComment} className="flex gap-2 items-center">
+              <div className="w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs shrink-0"
+                style={{ background: user ? '#c8ff00' : 'rgba(255,255,255,0.1)', color: '#0a0a0f' }}>
+                {user ? (user.email?.[0] || 'U').toUpperCase() : '?'}
+              </div>
+              <div className="flex-1 flex items-center gap-2 rounded-2xl px-3 py-2"
+                style={{ background: 'rgba(255,255,255,0.07)' }}>
+                <input
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  placeholder={user ? 'Write a comment... #hashtag @mention' : 'Log in to comment'}
+                  disabled={!user}
+                  className="flex-1 bg-transparent border-none focus:outline-none text-xs"
+                  style={{ color: '#fff', caretColor: '#c8ff00' }}
+                />
+                <button
+                  type="submit"
+                  disabled={submitting || !newComment.trim() || !user}
+                  className="shrink-0 disabled:opacity-30 transition-opacity"
+                  style={{ color: '#c8ff00' }}
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </form>
+
+            {/* Comment list */}
+            {commentsWithReplies.length > 0 ? (
+              <div className="space-y-3">
+                {commentsWithReplies.map(c => (
+                  <CommentItem key={c.id} comment={c} postId={post.id} user={user} onRefresh={onRefresh} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-xs py-2" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                No comments yet — be the first! 🏸
+              </p>
+            )}
+          </div>
+        )}
+      </article>
+    </>
   )
 }

@@ -29,7 +29,7 @@ export default function FeedPage() {
         *,
         author:users!posts_author_id_fkey (id, username, avatar_url),
         likes (user_id),
-        comments (*, users(username))
+        comments (*, users(username), comment_likes(user_id))
       `)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
