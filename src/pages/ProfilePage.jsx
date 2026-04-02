@@ -1,262 +1,117 @@
 import { useEffect, useState } from 'react'
-import { supabase, SPORTS, REGIONS, CITIES_BY_REGION } from '../lib/supabase'
+import { useParams } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Trophy, Clock, MapPin, Edit3, Check, Loader2, ChevronDown } from 'lucide-react'
+import PostCard from '../components/PostCard'
+import GameCard from '../components/GameCard'
+import { Loader2, Settings, MapPin, Calendar, Edit3 } from 'lucide-react'
 
 export default function ProfilePage() {
-  const { user, profile, signOut, refreshProfile } = useAuth()
-  const [games, setGames]     = useState([])
-  const [posts, setPosts]     = useState([])
+  const { username } = useParams()
+  const { user: currentUser } = useAuth()
+  const [profile, setProfile] = useState(null)
+  const [posts, setPosts] = useState([])
+  const [games, setGames] = useState([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(false)
-  const [savingProfile, setSavingProfile] = useState(false)
+  const [tab, setTab] = useState('posts') // 'posts' or 'matches'
 
-  const [editForm, setEditForm] = useState({
-    username:     '',
-    display_name: '',
-    bio:          '',
-    region:       '',
-    city:         '',
-  })
+  const isOwnProfile = currentUser?.id === profile?.id
 
-  useEffect(() => { if (user) fetchData() }, [user])
-
-  useEffect(() => {
-    if (profile) {
-      setEditForm({
-        username:     profile.username     || '',
-        display_name: profile.display_name || '',
-        bio:          profile.bio          || '',
-        region:       profile.region       || '',
-        city:         profile.city         || '',
-      })
-    }
-  }, [profile])
-
-  async function fetchData() {
+  async function fetchProfileData() {
     setLoading(true)
-    const [{ data: g }, { data: p }] = await Promise.all([
-      supabase.from('games').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('posts').select('*, likes(user_id), comments(id)').eq('user_id', user.id).order('inserted_at', { ascending: false }).limit(20),
-    ])
-    setGames(g || [])
-    setPosts(p || [])
+    // 1. Get User Profile
+    const { data: userData } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single()
+
+    if (userData) {
+      setProfile(userData)
+      
+      // 2. Get Posts
+      const { data: userPosts } = await supabase
+        .from('posts')
+        .select('*, author:users!posts_author_id_fkey(*), likes(*), comments(*)')
+        .eq('author_id', userData.id)
+        .order('created_at', { ascending: false })
+      setPosts(userPosts || [])
+
+      // 3. Get Games/Matches
+      const { data: userGames } = await supabase
+        .from('games')
+        .select('*, users(*)')
+        .eq('user_id', userData.id)
+        .order('created_at', { ascending: false })
+      setGames(userGames || [])
+    }
     setLoading(false)
   }
 
-  async function saveProfile() {
-    setSavingProfile(true)
-    const { error } = await supabase.from('users').update(editForm).eq('id', user.id)
-    if (!error) { await refreshProfile(); setEditing(false) }
-    else alert('Error saving: ' + error.message)
-    setSavingProfile(false)
-  }
+  useEffect(() => {
+    fetchProfileData()
+  }, [username])
 
-  const cities = editForm.region ? (CITIES_BY_REGION[editForm.region] || []) : []
-
-  // Per-sport stats
-  const sportStats = SPORTS.map(s => {
-    const sg = games.filter(g => g.sport === s.id)
-    const wins = sg.filter(g => g.result === 'win').length
-    return { ...s, total: sg.length, wins, rate: sg.length ? Math.round(wins / sg.length * 100) : 0 }
-  }).filter(s => s.total > 0)
-
-  const totalWins    = games.filter(g => g.result === 'win').length
-  const totalMatches = games.length
-  const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
-  const initial      = (profile?.username || profile?.display_name || 'U').charAt(0).toUpperCase()
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-ink-900 flex items-center justify-center">
-        <Loader2 className="animate-spin text-accent" size={28} />
-      </div>
-    )
-  }
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent" /></div>
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
-
-      {/* Hero */}
-      <div className="flex flex-col items-center px-6 pt-14 pb-6 relative">
-        <button
-          onClick={() => setEditing(!editing)}
-          className="absolute top-14 right-5 p-2 glass rounded-xl border border-white/10 text-ink-500 hover:text-accent transition-colors"
-        >
-          {editing ? <Check size={18} /> : <Edit3 size={18} />}
-        </button>
-
-        <div className="w-20 h-20 bg-accent rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-3xl mb-4 glow-accent">
-          {initial}
+    <div className="pb-20">
+      {/* Header/Cover Area */}
+      <div className="h-32 bg-gradient-to-r from-ink-800 to-ink-900" />
+      
+      <div className="px-4 -mt-12 mb-6">
+        <div className="flex justify-between items-end mb-4">
+          <div className="w-24 h-24 rounded-[2rem] bg-ink-700 border-4 border-ink-900 overflow-hidden shadow-xl">
+            <div className="w-full h-full flex items-center justify-center text-3xl bg-accent text-ink-900 font-black">
+              {profile?.username?.charAt(0).toUpperCase()}
+            </div>
+          </div>
+          
+          {isOwnProfile && (
+            <button className="flex items-center gap-2 px-6 py-2.5 bg-white text-ink-900 rounded-xl font-black uppercase text-[10px] tracking-wider hover:bg-accent transition-colors">
+              <Edit3 size={14} />
+              Edit Profile
+            </button>
+          )}
         </div>
 
-        {editing ? (
-          <div className="w-full max-w-sm space-y-2 mb-4">
-            <input
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-accent/50 focus:outline-none text-center"
-              placeholder="@username"
-              value={editForm.username}
-              onChange={e => setEditForm({ ...editForm, username: e.target.value.replace(/[^a-zA-Z0-9_]/g, '') })}
-            />
-            <input
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-accent/50 focus:outline-none text-center"
-              placeholder="Display name"
-              value={editForm.display_name}
-              onChange={e => setEditForm({ ...editForm, display_name: e.target.value })}
-            />
-            <textarea
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-accent/50 focus:outline-none resize-none"
-              placeholder="Bio..."
-              rows={2}
-              value={editForm.bio}
-              onChange={e => setEditForm({ ...editForm, bio: e.target.value })}
-            />
-            <select
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:outline-none appearance-none"
-              value={editForm.region}
-              onChange={e => setEditForm({ ...editForm, region: e.target.value, city: '' })}
-            >
-              <option value="" className="bg-ink-900">Select Region</option>
-              {REGIONS.map(r => <option key={r.id} value={r.id} className="bg-ink-900">{r.label}</option>)}
-            </select>
-            <select
-              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:outline-none appearance-none disabled:opacity-40"
-              value={editForm.city}
-              onChange={e => setEditForm({ ...editForm, city: e.target.value })}
-              disabled={!editForm.region}
-            >
-              <option value="" className="bg-ink-900">Select City</option>
-              {cities.map(c => <option key={c} value={c} className="bg-ink-900">{c}</option>)}
-            </select>
-            <button
-              onClick={saveProfile}
-              disabled={savingProfile}
-              className="w-full bg-accent text-ink-900 font-display font-bold py-3 rounded-2xl glow-accent disabled:opacity-50"
-            >
-              {savingProfile ? 'Saving...' : 'Save Profile'}
-            </button>
-          </div>
-        ) : (
-          <>
-            <h1 className="text-2xl font-display font-bold uppercase italic tracking-tight mb-1">
-              @{profile?.username || 'Set username'}
-            </h1>
-            {profile?.display_name && (
-              <p className="text-ink-400 text-sm font-medium mb-1">{profile.display_name}</p>
-            )}
-            {(profile?.city || profile?.region) && (
-              <div className="flex items-center gap-1 text-ink-600 text-xs font-bold">
-                <MapPin size={11} />
-                {[profile.city, profile.region].filter(Boolean).join(', ')}
-              </div>
-            )}
-            {profile?.bio && (
-              <p className="text-ink-400 text-sm text-center mt-2 max-w-xs">{profile.bio}</p>
-            )}
-          </>
-        )}
+        <h1 className="text-2xl font-black text-ink-50">@{profile?.username}</h1>
+        <div className="flex flex-wrap gap-4 mt-2 text-ink-400 text-xs font-bold uppercase tracking-wider">
+          <span className="flex items-center gap-1"><MapPin size={12}/> {profile?.city}, {profile?.region}</span>
+          <span className="flex items-center gap-1"><Calendar size={12}/> Joined 2024</span>
+        </div>
       </div>
 
-      {/* Overall stats */}
-      <div className="grid grid-cols-3 gap-3 px-4 mb-4">
-        {[
-          { num: totalWins,    lbl: 'Wins'    },
-          { num: `${winRate}%`, lbl: 'Win Rate' },
-          { num: totalMatches, lbl: 'Matches'  },
-        ].map(s => (
-          <div key={s.lbl} className="glass p-4 rounded-[1.5rem] border border-white/5 text-center">
-            <p className="font-display text-2xl font-bold text-accent italic">{s.num}</p>
-            <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-0.5">{s.lbl}</p>
-          </div>
+      {/* Tabs */}
+      <div className="flex border-b border-white/5 mb-4 px-4 gap-8">
+        {['posts', 'matches'].map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`pb-3 text-xs font-black uppercase tracking-widest transition-all ${
+              tab === t ? 'text-accent border-b-2 border-accent' : 'text-ink-500'
+            }`}
+          >
+            {t === 'posts' ? 'Posts' : 'Match Logs'}
+          </button>
         ))}
       </div>
 
-      {/* Per-sport stats */}
-      {sportStats.length > 0 && (
-        <div className="px-4 mb-4">
-          <div className="glass p-5 rounded-[2rem] border border-white/10">
-            <div className="flex items-center gap-2 mb-4">
-              <Trophy size={14} className="text-accent" />
-              <p className="text-[9px] font-black uppercase tracking-widest text-ink-600">By Sport</p>
-            </div>
-            <div className="space-y-4">
-              {sportStats.map(s => (
-                <div key={s.id}>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-xs font-bold flex items-center gap-1.5">
-                      {s.emoji} {s.label}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-ink-600 font-bold">{s.wins}W / {s.total - s.wins}L</span>
-                      <span className="text-accent font-black text-sm">{s.rate}%</span>
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-ink-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-accent rounded-full transition-all duration-700"
-                      style={{ width: `${s.rate}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recent posts */}
-      {posts.length > 0 && (
-        <div className="px-4">
-          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mb-3 flex items-center gap-2">
-            <Clock size={10} /> Recent Activity
-          </p>
-          <div className="space-y-3">
-            {posts.map(post => {
-              const sport = SPORTS.find(s => s.id === post.sport)
-              return (
-                <div key={post.id} className="glass p-4 rounded-[1.5rem] border border-white/5 bg-white/[0.01]">
-                  <div className="flex items-start justify-between mb-2">
-                    <p className="text-ink-600 text-[9px] font-black uppercase tracking-widest">
-                      {new Date(post.inserted_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
-                    </p>
-                    {sport && (
-                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md badge-${post.sport}`}>
-                        {sport.emoji}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-ink-200 leading-relaxed">{post.content}</p>
-                  <div className="flex items-center gap-3 mt-2 text-[10px] text-ink-600 font-bold">
-                    <span>♥ {post.likes?.length || 0}</span>
-                    <span>💬 {post.comments?.length || 0}</span>
-                    {post.location_name && (
-                      <span className="flex items-center gap-1">
-                        <MapPin size={9} className="text-accent" /> {post.location_name}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {games.length === 0 && posts.length === 0 && !loading && (
-        <div className="text-center py-12 px-6">
-          <p className="text-4xl mb-3">🏸</p>
-          <p className="text-ink-500 font-black uppercase text-xs tracking-widest">No activity yet</p>
-          <p className="text-ink-700 text-xs mt-1">Log your first match to get started!</p>
-        </div>
-      )}
-
-      <div className="px-4 mt-8">
-        <button
-          onClick={signOut}
-          className="w-full py-4 glass rounded-2xl text-spark font-black text-xs uppercase tracking-widest border border-spark/20 hover:bg-spark/5 transition-colors"
-        >
-          Sign Out
-        </button>
+      {/* Content Area */}
+      <div className="px-4">
+        {tab === 'posts' ? (
+          posts.length > 0 ? (
+            posts.map(p => <PostCard key={p.id} post={p} user={currentUser} onRefresh={fetchProfileData} />)
+          ) : (
+            <p className="text-center text-ink-500 py-10 text-xs uppercase font-bold">No posts yet</p>
+          )
+        ) : (
+          games.length > 0 ? (
+            games.map(g => <GameCard key={g.id} game={g} />)
+          ) : (
+            <p className="text-center text-ink-500 py-10 text-xs uppercase font-bold">No matches logged</p>
+          )
+        )}
       </div>
     </div>
   )
