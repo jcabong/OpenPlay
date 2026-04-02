@@ -8,7 +8,9 @@ export default function LoadingScreen() {
             <span className="text-2xl">🏸</span>
           </div>
         </div>
-        <p className="font-display text-ink-300 tracking-widest text-xs uppercase">Loading</p>
+        <p className="font-display text-ink-300 tracking-widest text-xs uppercase animate-pulse">
+          Loading
+        </p>
       </div>
     </div>
   )

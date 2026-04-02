@@ -1,50 +1,49 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { SPORTS } from '../lib/supabase'
 
 export default function LoginPage() {
   const { user, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    if (user) navigate('/', { replace: true })
-  }, [user])
+  useEffect(() => { if (user) navigate('/', { replace: true }) }, [user])
 
   return (
     <div className="min-h-screen bg-ink-900 flex flex-col relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-accent/5 blur-3xl" />
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-spark/5 blur-3xl" />
-        {/* Grid lines */}
-        <div className="absolute inset-0 opacity-[0.03]"
-          style={{ backgroundImage: 'linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)', backgroundSize: '40px 40px' }} />
+        <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-accent/5 blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-[500px] h-[500px] rounded-full bg-spark/5 blur-3xl" />
+        <div
+          className="absolute inset-0 opacity-[0.025]"
+          style={{
+            backgroundImage: 'linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)',
+            backgroundSize: '40px 40px',
+          }}
+        />
       </div>
 
-      {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
         {/* Logo */}
-        <div className="mb-12 text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-ink-700 border border-white/10 mb-6 shadow-2xl">
-            <span className="text-4xl">🏸</span>
+        <div className="mb-14 text-center">
+          <div className="inline-flex items-center justify-center w-24 h-24 rounded-[2rem] bg-ink-700 border border-white/10 mb-6 shadow-2xl">
+            <span className="text-5xl">🏸</span>
           </div>
           <h1 className="font-display text-5xl font-bold text-ink-50 tracking-tight mb-2">
             Open<span className="text-accent">Play</span>
           </h1>
-          <p className="text-ink-400 text-base font-body max-w-xs">
-            Track your game. Climb the ranks. Dominate the court.
+          <p className="text-ink-400 text-sm font-body max-w-xs">
+            Track your game. Climb the ranks.<br />Dominate your city.
           </p>
         </div>
 
-        {/* Sports badges */}
-        <div className="flex gap-3 mb-12">
-          {[
-            { emoji: '🏸', label: 'Badminton' },
-            { emoji: '🥒', label: 'Pickleball' },
-          ].map(s => (
-            <div key={s.label} className="glass rounded-2xl px-5 py-3 flex items-center gap-2">
-              <span className="text-xl">{s.emoji}</span>
-              <span className="text-sm font-medium text-ink-200">{s.label}</span>
+        {/* Sport badges */}
+        <div className="flex flex-wrap gap-2 justify-center mb-14">
+          {SPORTS.map(s => (
+            <div key={s.id} className="glass rounded-2xl px-4 py-2.5 flex items-center gap-2">
+              <span className="text-lg">{s.emoji}</span>
+              <span className="text-xs font-bold text-ink-200">{s.label}</span>
             </div>
           ))}
         </div>
@@ -53,7 +52,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm space-y-3">
           <button
             onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 bg-accent text-ink-900 font-display font-semibold text-base py-4 px-6 rounded-2xl hover:bg-accent/90 active:scale-[0.98] transition-all duration-150 glow-accent shadow-lg"
+            className="w-full flex items-center justify-center gap-3 bg-accent text-ink-900 font-display font-bold text-base py-4 px-6 rounded-2xl hover:bg-accent/90 active:scale-[0.98] transition-all duration-150 glow-accent shadow-lg"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#111"/>
@@ -63,17 +62,15 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </button>
-
-          <p className="text-center text-ink-500 text-xs">
+          <p className="text-center text-ink-600 text-xs">
             By continuing, you agree to our Terms & Privacy Policy
           </p>
         </div>
       </div>
 
-      {/* Bottom tagline */}
       <div className="text-center pb-8 relative z-10">
-        <p className="text-ink-600 text-xs font-mono tracking-widest uppercase">
-          Built for players, by players
+        <p className="text-ink-700 text-[10px] font-mono tracking-widest uppercase">
+          Built for racket players
         </p>
       </div>
     </div>

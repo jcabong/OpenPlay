@@ -1,22 +1,21 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, User } from 'lucide-react'
+import { NavLink } from 'react-router-dom'
+import { Home, PlusCircle, Trophy, Calendar, User } from 'lucide-react'
 
 const tabs = [
-  { to: '/',            label: 'Feed',        Icon: Home },
-  { to: '/log',         label: 'Log',         Icon: PlusCircle },
-  { to: '/leaderboard', label: 'Ranks',       Icon: Trophy },
-  { to: '/profile',     label: 'Profile',     Icon: User },
+  { to: '/',        label: 'Feed',    Icon: Home     },
+  { to: '/log',     label: 'Log',     Icon: PlusCircle },
+  { to: '/ranks',   label: 'Ranks',   Icon: Trophy   },
+  { to: '/events',  label: 'Events',  Icon: Calendar },
+  { to: '/profile', label: 'Profile', Icon: User     },
 ]
 
 export default function Layout({ children }) {
   return (
     <div className="flex flex-col h-full bg-ink-900">
-      {/* Scrollable content area */}
       <main className="flex-1 overflow-y-auto pb-20">
         {children}
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="fixed bottom-0 inset-x-0 z-40 glass border-t border-white/5 nav-safe-bottom">
         <div className="flex items-center justify-around px-2 pt-2">
           {tabs.map(({ to, label, Icon }) => (
@@ -25,10 +24,8 @@ export default function Layout({ children }) {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? 'text-accent'
-                    : 'text-ink-400 hover:text-ink-200'
+                `flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-200 ${
+                  isActive ? 'text-accent' : 'text-ink-400 hover:text-ink-200'
                 }`
               }
             >
@@ -40,7 +37,7 @@ export default function Layout({ children }) {
                       <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                     )}
                   </div>
-                  <span className={`text-[10px] font-medium tracking-wide ${isActive ? 'text-accent' : ''}`}>
+                  <span className={`text-[9px] font-black uppercase tracking-wider ${isActive ? 'text-accent' : ''}`}>
                     {label}
                   </span>
                 </>

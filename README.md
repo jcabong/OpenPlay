@@ -1,18 +1,32 @@
-# 🏸 OpenPlay — Social Sports PWA
+# 🏸 OpenPlay — Social Racket Sports PWA
 
-A mobile-first Progressive Web App for tracking badminton and pickleball games, inspired by Strava.
+A Strava-style mobile-first Progressive Web App for **Badminton, Pickleball, Tennis, and Table Tennis** players.
 
-## Stack
-- **React 18** + **Vite** — Fast frontend tooling
-- **Tailwind CSS** — Utility-first styling
-- **Supabase** — Auth (Google OAuth), Postgres DB, Realtime
-- **vite-plugin-pwa** — PWA manifest + service worker
+## Features
+
+| Feature | Details |
+|---|---|
+| **Global Feed** | Posts with photos/video, GG (likes), comments, sport + location tags |
+| **Match Logging** | Sport, court, city/region, opponent tagging, score, result, intensity, media upload |
+| **Leaderboards** | Per-sport rankings drillable by National → Region → City/Municipality |
+| **Events** | Browse and register for tournaments, open play sessions, clinics; host your own |
+| **Profile** | Per-sport win rates, career stats, editable bio + location |
+| **PWA** | Installable, offline-capable, mobile-optimised |
 
 ---
 
-## 🚀 Quick Start
+## Tech Stack
 
-### 1. Clone & Install
+- **React 18** + **Vite 6**
+- **Tailwind CSS** with custom design tokens
+- **Supabase** — Auth (Google OAuth), Postgres, Storage, Realtime
+- **vite-plugin-pwa** — service worker + manifest
+
+---
+
+## Quick Start
+
+### 1. Clone & install
 
 ```bash
 git clone <your-repo>
@@ -20,14 +34,12 @@ cd openplay
 npm install
 ```
 
-### 2. Create a Supabase Project
+### 2. Create a Supabase project
 
-1. Go to [app.supabase.com](https://app.supabase.com) and create a new project
-2. Go to **Project Settings → API** and copy:
-   - `Project URL`
-   - `anon public` key
+1. Go to [app.supabase.com](https://app.supabase.com) → New project
+2. **Project Settings → API** — copy your `Project URL` and `anon public` key
 
-### 3. Configure Environment
+### 3. Set up environment
 
 ```bash
 cp .env.example .env.local
@@ -40,29 +52,50 @@ VITE_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 ```
 
-### 4. Set Up the Database
+### 4. Run the database schema
 
-In your Supabase project, open the **SQL Editor** and run the full schema found in:
+Open **Supabase → SQL Editor** and paste + run the full contents of:
 
 ```
-src/lib/supabase.js  (the comment block at the bottom)
+supabase_schema.sql
 ```
 
-This creates:
-- `users` table + RLS policies
-- `games` table + RLS policies
-- `game_players` table + RLS policies
-- Auto-create profile trigger on sign-up
+This creates all tables, RLS policies, and the auto-profile trigger.
 
-### 5. Enable Google OAuth
+### 5. Create the media storage bucket
 
-1. In Supabase: **Authentication → Providers → Google**
-2. Enable Google and add your OAuth credentials from [Google Cloud Console](https://console.cloud.google.com)
-3. Add `http://localhost:5173` and your production URL to:
-   - Google Cloud Console → Authorized redirect URIs
-   - Supabase → Auth → URL Configuration → Redirect URLs
+In **Supabase → Storage → New bucket**:
+- Name: `openplay-media`
+- Public: ✅ enabled
 
-### 6. Run Dev Server
+Or run in SQL Editor:
+```sql
+insert into storage.buckets (id, name, public)
+values ('openplay-media', 'openplay-media', true)
+on conflict do nothing;
+```
+
+Add a storage policy so authenticated users can upload:
+```sql
+create policy "Authenticated users can upload"
+  on storage.objects for insert
+  with check (auth.role() = 'authenticated');
+
+create policy "Media is publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'openplay-media');
+```
+
+### 6. Enable Google OAuth
+
+1. **Supabase → Authentication → Providers → Google** → Enable
+2. Add your OAuth credentials from [Google Cloud Console](https://console.cloud.google.com)
+3. Add these to **Authorized redirect URIs** in Google Cloud:
+   - `http://localhost:5173`
+   - `https://your-production-domain.com`
+4. Add both URLs to **Supabase → Auth → URL Configuration → Redirect URLs**
+
+### 7. Run dev server
 
 ```bash
 npm run dev
@@ -72,91 +105,86 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 src/
 ├── components/
-│   ├── GameCard.jsx       # Reusable game card
-│   ├── Layout.jsx         # Bottom nav + page wrapper
-│   └── LoadingScreen.jsx  # Splash loading screen
+│   ├── Layout.jsx          # Bottom nav + page wrapper (5 tabs)
+│   ├── LoadingScreen.jsx   # Branded splash screen
+│   ├── PostCard.jsx        # Feed post card with likes/comments/media
+│   └── UsernameSetup.jsx   # 2-step onboarding (username + location)
 ├── hooks/
-│   └── useAuth.jsx        # Auth context + provider
+│   └── useAuth.jsx         # Auth context, Google sign-in, profile fetch
 ├── lib/
-│   └── supabase.js        # Supabase client + DB schema
+│   └── supabase.js         # Client, SPORTS config, REGIONS/CITIES data
 ├── pages/
-│   ├── LoginPage.jsx      # Google OAuth login
-│   ├── FeedPage.jsx       # Home feed with realtime
-│   ├── LogGamePage.jsx    # Log a game form
-│   ├── LeaderboardPage.jsx # Top 10 by wins
-│   └── ProfilePage.jsx    # User stats + game history
-├── App.jsx                # Router + auth guard
-├── main.jsx               # Entry point
-└── index.css              # Global styles + Tailwind
+│   ├── LoginPage.jsx       # Google OAuth entry
+│   ├── FeedPage.jsx        # Global feed with sport filter + realtime
+│   ├── LogGamePage.jsx     # Match recorder with media upload
+│   ├── LeaderboardPage.jsx # Rankings — National / Region / City
+│   ├── EventsPage.jsx      # Browse + register events; host modal
+│   └── ProfilePage.jsx     # Stats, per-sport win rates, edit profile
+├── App.jsx                 # Router + auth guard + username check
+├── main.jsx
+└── index.css               # Tailwind + custom CSS tokens
+supabase_schema.sql         # Full DB schema — run once in SQL Editor
 ```
 
 ---
 
-## 🗄️ Database Schema
+## Database Schema
 
-### `users`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | refs auth.users |
-| name | text | |
-| avatar_url | text | from Google |
-| created_at | timestamptz | |
+### Tables created by `supabase_schema.sql`
 
-### `games`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | |
-| user_id | uuid | refs users.id |
-| sport | text | 'badminton' \| 'pickleball' |
-| score | text | free-form e.g. "21-18" |
-| location | text | |
-| result | text | 'win' \| 'loss' \| 'draw' |
-| created_at | timestamptz | |
-
-### `game_players`
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid | |
-| game_id | uuid | refs games.id |
-| player_name | text | opponent name |
+| Table | Purpose |
+|---|---|
+| `users` | Mirrors `auth.users`, adds username / city / region / bio |
+| `games` | Individual match records with sport, score, result, location |
+| `posts` | Feed posts — linked to a game, optional media (images/video) |
+| `likes` | Post reactions (unique per user per post) |
+| `comments` | Post comments |
+| `events` | Tournaments, open play sessions, clinics |
+| `event_registrations` | Join/leave event registrations |
 
 ---
 
-## 🏗️ Build for Production
+## Adding More Cities / Regions
+
+Edit `src/lib/supabase.js` — extend `REGIONS` and `CITIES_BY_REGION`:
+
+```js
+export const REGIONS = [
+  { id: 'NCR', label: 'NCR (Metro Manila)' },
+  // add more...
+]
+
+export const CITIES_BY_REGION = {
+  NCR: ['Manila', 'Quezon City', ...],
+  // add more...
+}
+```
+
+---
+
+## Deploy to Vercel
 
 ```bash
 npm run build
-npm run preview
+# push to GitHub, connect repo in vercel.com
+# add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY as Environment Variables
 ```
 
-Deploy the `dist/` folder to Vercel, Netlify, or Cloudflare Pages.
+The included `vercel.json` handles SPA routing automatically.
 
 ---
 
-## ✨ Features
+## Roadmap
 
-- **Google Sign-In** via Supabase OAuth
-- **Live Feed** — realtime game updates via Supabase channels
-- **Log Game** — sport, score, result, location, opponents
-- **Leaderboard** — top 10 players ranked by wins with podium UI
-- **Profile** — win rate progress bar, stats grid, game history
-- **PWA** — installable, offline-capable, mobile-optimized
-- **Dark theme** — sleek black UI with neon-lime accents
-
----
-
-## 🔮 Future Features
-
-- [ ] Comments / reactions on games
-- [ ] Club / group sessions
-- [ ] GPS location via browser API
-- [ ] Push notifications (game challenges)
 - [ ] Head-to-head rival tracking
-- [ ] Match photos / media
-# OpenPlay
-# OpenPlay
+- [ ] Push notifications (match challenges, event reminders)
+- [ ] Club / group sessions
+- [ ] GPS court finder
+- [ ] Match video trimming / highlight reels
+- [ ] Skill rating system (ELO-based)
+- [ ] Tournament bracket management

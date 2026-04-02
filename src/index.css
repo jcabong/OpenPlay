@@ -2,9 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap');
+
 :root {
-  --accent: #C8FF00;
-  --spark:  #FF4D00;
+  --accent:      #C8FF00;
+  --spark:       #FF4D00;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -22,10 +25,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 0; }
+::-webkit-scrollbar { width: 0; height: 0; }
 
-/* Bottom nav safe area */
 .nav-safe-bottom {
   padding-bottom: calc(0.75rem + var(--safe-bottom));
 }
@@ -34,19 +35,25 @@ body {
 .glass {
   background: rgba(255,255,255,0.04);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.07);
 }
 
 /* Accent glow */
-.glow-accent {
-  box-shadow: 0 0 24px rgba(200, 255, 0, 0.25);
-}
+.glow-accent { box-shadow: 0 0 24px rgba(200,255,0,0.25); }
+.glow-spark  { box-shadow: 0 0 24px rgba(255,77,0,0.25); }
 
-/* Sport badge */
-.badge-badminton  { background: rgba(200,255,0,0.12); color: #C8FF00; }
-.badge-pickleball { background: rgba(255,77,0,0.12);  color: #FF8C60; }
+/* Sport badges */
+.badge-badminton   { background: rgba(200,255,0,0.12); color: #C8FF00; }
+.badge-pickleball  { background: rgba(255,77,0,0.12);  color: #FF8C60; }
+.badge-tennis      { background: rgba(55,138,221,0.12); color: #7EB8F7; }
+.badge-tabletennis { background: rgba(168,85,247,0.12); color: #C084FC; }
 
-/* Animated gradient bg */
+/* No-scrollbar utility */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Animated gradient */
 @keyframes gradShift {
   0%   { background-position: 0% 50%; }
   50%  { background-position: 100% 50%; }
@@ -57,5 +64,12 @@ body {
   animation: gradShift 8s ease infinite;
 }
 
-/* Number counter font */
+/* Slide-up animation */
+@keyframes slideUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.animate-slide-up { animation: slideUp 0.35s cubic-bezier(0.16,1,0.3,1); }
+
+/* Stat font */
 .font-stat { font-family: 'Clash Display', system-ui; }
