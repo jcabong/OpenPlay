@@ -27,17 +27,19 @@ export default function FeedPage() {
       .from('posts')
       .select(`
         *,
-        users (id, username, avatar_url),
+        author:users!posts_author_id_fkey (id, username, avatar_url),
         likes (user_id),
         comments (*, users(username))
       `)
-      .order('inserted_at', { ascending: false })
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
       .limit(50)
 
     if (sport !== 'all') q = q.eq('sport', sport)
 
     const { data, error } = await q
-    if (!error) setPosts(data || [])
+    if (error) console.error('Feed error:', error.message)
+    else setPosts(data || [])
     setLoading(false)
   }, [sport])
 
@@ -92,11 +94,13 @@ export default function FeedPage() {
         : { urls: [], types: [] }
 
       const { error } = await supabase.from('posts').insert([{
+        author_id: user.id,
         user_id: user.id,
         content: content.trim(),
         sport: postSport,
         media_urls,
         media_types,
+        created_at: new Date().toISOString(),
         inserted_at: new Date().toISOString(),
       }])
 

@@ -14,8 +14,10 @@ export default function PostCard({ post, onRefresh }) {
   const hasLiked   = post.likes?.some(l => l.user_id === user?.id)
   const likesCount = post.likes?.length || 0
   const commCount  = post.comments?.length || 0
-  const username   = post.users?.username || 'anon'
+  const postUser   = post.author || post.users || {}
+  const username   = postUser.username || 'anon'
   const initial    = username.charAt(0).toUpperCase()
+  const profileId  = post.author_id || post.user_id
 
   async function toggleLike() {
     if (!user) return
@@ -44,7 +46,7 @@ export default function PostCard({ post, onRefresh }) {
     <article className="glass rounded-[2.5rem] p-5 border border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent animate-slide-up">
 
       {/* Header */}
-      <Link to={`/profile/${post.user_id}`} className="flex items-center gap-3 mb-4 group">
+      <Link to={`/profile/${profileId}`} className="flex items-center gap-3 mb-4 group">
         <div className={`w-10 h-10 rounded-[0.75rem] flex items-center justify-center font-bold text-sm shrink-0 ${avatarColor}`}>
           {initial}
         </div>
