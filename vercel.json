@@ -14,7 +14,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.supabase.co fonts.googleapis.com fonts.gstatic.com api.fontshare.com;"
+          "value": "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.supabase.co fonts.googleapis.com fonts.gstatic.com api.fontshare.com maps.googleapis.com maps.gstatic.com;"
         }
       ]
     }
