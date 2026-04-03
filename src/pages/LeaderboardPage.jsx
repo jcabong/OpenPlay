@@ -121,20 +121,18 @@ export default function LeaderboardPage() {
   }, [sport])
 
   const fetchBoard = useCallback(async () => {
+    if (tier === 'court' && !selectedCourt) { setBoard([]); setLoading(false); return }
     setLoading(true)
     try {
-      // Fetch all games for this sport (both wins and losses for win rate)
       let q = supabase
         .from('games')
         .select('user_id, result, city, court_name, users!inner(id, username, city)')
         .eq('sport', sport)
 
-      if (tier === 'court' && selectedCourt) {
-        q = q.eq('court_name', selectedCourt)
-      }
+      if (tier === 'court') q = q.eq('court_name', selectedCourt)
 
       const { data, error } = await q
-      if (error) { console.error(error); setLoading(false); return }
+      if (error) { console.error('fetchBoard error:', error); setLoading(false); return }
       if (!data || data.length === 0) { setBoard([]); setLoading(false); return }
 
       // Tally wins, losses per player
