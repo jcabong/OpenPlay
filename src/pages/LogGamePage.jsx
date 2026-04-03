@@ -4,37 +4,65 @@ import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
 
-// ── Smart location search (OpenStreetMap Nominatim, no API key) ──────────────
-function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
-  const [query, setQuery]           = useState(courtName || '')
-  const [suggestions, setSuggestions] = useState([])
-  const [searching, setSearching]   = useState(false)
-  const [gpsLoading, setGpsLoading] = useState(false)
-  const [focused, setFocused]       = useState(false)
-  const debounceRef                 = useRef(null)
+// ── Smart location search (Google Places Autocomplete) ──────────────
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
-  // Show selected location as a badge
-  const hasLocation = courtName || city
+function useGoogleMaps() {
+  const [ready, setReady] = useState(!!window.google?.maps?.places)
+  useEffect(() => {
+    if (window.google?.maps?.places) { setReady(true); return }
+    if (document.getElementById('gmap-script')) return
+    const script = document.createElement('script')
+    script.id  = 'gmap-script'
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places`
+    script.async = true
+    script.onload = () => setReady(true)
+    document.head.appendChild(script)
+  }, [])
+  return ready
+}
+
+function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
+  const [query, setQuery]             = useState(courtName || '')
+  const [suggestions, setSuggestions] = useState([])
+  const [searching, setSearching]     = useState(false)
+  const [gpsLoading, setGpsLoading]   = useState(false)
+  const [focused, setFocused]         = useState(false)
+  const debounceRef                   = useRef(null)
+  const sessionTokenRef               = useRef(null)
+  const autocompleteRef               = useRef(null)
+  const mapsReady                     = useGoogleMaps()
+
+  useEffect(() => {
+    if (mapsReady && !autocompleteRef.current) {
+      sessionTokenRef.current   = new window.google.maps.places.AutocompleteSessionToken()
+      autocompleteRef.current   = new window.google.maps.places.AutocompleteService()
+    }
+  }, [mapsReady])
 
   async function searchPlaces(q) {
-    if (q.length < 2) { setSuggestions([]); return }
+    if (q.length < 2 || !autocompleteRef.current) { setSuggestions([]); return }
     setSearching(true)
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=ph`
-      )
-      const data = await res.json()
-      setSuggestions(data.map(r => ({
-        display: r.display_name.split(',').slice(0, 2).join(',').trim(),
-        full: r.display_name,
-        city: r.address?.city || r.address?.town || r.address?.municipality || r.address?.county || '',
-        name: r.address?.amenity || r.address?.leisure || r.address?.building || r.name || '',
-      })))
-    } catch {
-      setSuggestions([])
-    } finally {
-      setSearching(false)
-    }
+    autocompleteRef.current.getPlacePredictions(
+      {
+        input: q,
+        sessionToken: sessionTokenRef.current,
+        componentRestrictions: { country: 'ph' },
+        types: ['establishment', 'geocode'],
+      },
+      (predictions, status) => {
+        setSearching(false)
+        if (status !== window.google.maps.places.PlacesServiceStatus.OK || !predictions) {
+          setSuggestions([]); return
+        }
+        setSuggestions(predictions.map(p => ({
+          placeId:     p.place_id,
+          name:        p.structured_formatting.main_text,
+          secondary:   p.structured_formatting.secondary_text || '',
+          description: p.description,
+        })))
+      }
+    )
   }
 
   function handleInput(e) {
@@ -43,14 +71,20 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
     onCourtChange(val)
     onCityChange('')
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => searchPlaces(val), 350)
+    debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
 
   function pickSuggestion(s) {
-    setQuery(s.display)
-    onCourtChange(s.name || s.display.split(',')[0].trim())
-    onCityChange(s.city)
+    setQuery(s.name)
+    onCourtChange(s.name)
+    // Extract city from secondary text (e.g. "Lipa, Batangas, Philippines")
+    const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
+    onCityChange(parts[0] || '')
     setSuggestions([])
+    // Refresh session token after selection
+    if (window.google?.maps?.places) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
   }
 
   function clearLocation() {
@@ -67,14 +101,18 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
       async ({ coords }) => {
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`
           )
           const data = await res.json()
-          const name  = data.address?.amenity || data.address?.leisure || data.address?.building || ''
-          const cityVal = data.address?.city || data.address?.town || data.address?.municipality || data.address?.county || ''
-          const display = name ? `${name}, ${cityVal}` : cityVal
-          setQuery(display)
-          onCourtChange(name || display)
+          const result = data.results?.[0]
+          if (!result) { alert('Could not get location'); setGpsLoading(false); return }
+          const components = result.address_components
+          const premise    = components.find(c => c.types.includes('premise') || c.types.includes('establishment'))
+          const cityComp   = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
+          const name       = premise?.long_name || result.formatted_address.split(',')[0].trim()
+          const cityVal    = cityComp?.long_name || ''
+          setQuery(name)
+          onCourtChange(name)
           onCityChange(cityVal)
         } catch {
           alert('Could not get location')
@@ -132,12 +170,8 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
             >
               <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
               <div>
-                <p className="text-xs font-bold text-white leading-tight">
-                  {s.display.split(',')[0].trim()}
-                </p>
-                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                  {s.display.split(',').slice(1).join(',').trim()}
-                </p>
+                <p className="text-xs font-bold text-white leading-tight">{s.name}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.secondary}</p>
               </div>
             </button>
           ))}
