@@ -1,36 +1,76 @@
-import { useEffect, useState, useCallback } from 'react'
-import { supabase, SPORTS, REGIONS, CITIES_BY_REGION } from '../lib/supabase'
-import { Trophy, ChevronDown, Loader2 } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { supabase, SPORTS } from '../lib/supabase'
+import { Trophy, Loader2, MapPin, X } from 'lucide-react'
 
-const TIER = ['National', 'Region', 'City']
+const TIER = ['National', 'City']
 
 export default function LeaderboardPage() {
-  const [sport, setSport]       = useState('badminton')
-  const [tier, setTier]         = useState('National')
-  const [region, setRegion]     = useState('')
-  const [city, setCity]         = useState('')
-  const [board, setBoard]       = useState([])
-  const [loading, setLoading]   = useState(true)
+  const [sport, setSport]     = useState('badminton')
+  const [tier, setTier]       = useState('National')
+  const [city, setCity]       = useState('')
+  const [cityInput, setCityInput] = useState('')
+  const [suggestions, setSuggestions] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [board, setBoard]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const debounceRef           = useRef(null)
 
-  const cities = region ? (CITIES_BY_REGION[region] || []) : []
+  async function searchCities(q) {
+    if (q.length < 2) { setSuggestions([]); return }
+    setSearching(true)
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=5&countrycodes=ph`
+      )
+      const data = await res.json()
+      const cities = [...new Set(data.map(r =>
+        r.address?.city || r.address?.town || r.address?.municipality || r.address?.county || ''
+      ).filter(Boolean))]
+      setSuggestions(cities)
+    } catch {
+      setSuggestions([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function handleCityInput(e) {
+    const val = e.target.value
+    setCityInput(val)
+    setCity('')
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchCities(val), 350)
+  }
+
+  function pickCity(c) {
+    setCity(c)
+    setCityInput(c)
+    setSuggestions([])
+  }
+
+  function clearCity() {
+    setCity('')
+    setCityInput('')
+    setSuggestions([])
+  }
 
   const fetchBoard = useCallback(async () => {
     setLoading(true)
     let q = supabase
       .from('games')
-      .select('user_id, result, city, region, users!inner(id, username, city, region)')
+      .select('user_id, result, city, users!inner(id, username, city)')
       .eq('sport', sport)
       .eq('result', 'win')
 
-    if (tier === 'Region' && region) q = q.eq('region', region)
-    if (tier === 'City'   && city)   q = q.eq('city', city)
+    if (tier === 'City' && city) q = q.eq('city', city)
 
     const { data } = await q
     if (data) {
       const tally = data.reduce((acc, g) => {
         const id  = g.user_id
         const usr = g.users
-        if (!acc[id]) acc[id] = { username: usr.username, city: usr.city, region: usr.region, wins: 0 }
+        if (!acc[id]) acc[id] = { username: usr.username, city: usr.city, wins: 0 }
         acc[id].wins++
         return acc
       }, {})
@@ -41,22 +81,22 @@ export default function LeaderboardPage() {
       setBoard(sorted)
     }
     setLoading(false)
-  }, [sport, tier, region, city])
+  }, [sport, tier, city])
 
   useEffect(() => { fetchBoard() }, [fetchBoard])
 
-  const medalColors = ['bg-accent text-ink-900', 'bg-ink-400 text-ink-900', 'bg-orange-600 text-white']
-  const sportEmoji  = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
+  const sportEmoji = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-24">
+
       {/* Header */}
       <div className="px-5 pt-14 pb-4">
         <div className="flex items-center gap-3 mb-1">
           <Trophy size={20} className="text-accent" />
           <h1 className="font-display text-3xl font-bold italic uppercase tracking-tighter text-white">Rankings</h1>
         </div>
-        <p className="text-accent text-[9px] font-black uppercase tracking-widest">By City · Region · Nation</p>
+        <p className="text-accent text-[9px] font-black uppercase tracking-widest">By City · Nation</p>
       </div>
 
       {/* Sport filter */}
@@ -82,7 +122,7 @@ export default function LeaderboardPage() {
           {TIER.map(t => (
             <button
               key={t}
-              onClick={() => { setTier(t); if (t === 'National') { setRegion(''); setCity('') } }}
+              onClick={() => { setTier(t); if (t === 'National') clearCity() }}
               className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest transition-all ${
                 tier === t ? 'bg-accent text-ink-900' : 'text-ink-500 hover:text-ink-300'
               }`}
@@ -93,34 +133,48 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* Location drilldown */}
-      {(tier === 'Region' || tier === 'City') && (
-        <div className="px-5 mb-4 space-y-2">
-          <div className="flex items-center gap-2 bg-white/5 rounded-2xl px-4 border border-white/5">
-            <ChevronDown size={14} className="text-ink-600 shrink-0" />
-            <select
-              className="bg-transparent w-full py-3 text-sm text-white focus:ring-0 focus:outline-none appearance-none"
-              value={region}
-              onChange={e => { setRegion(e.target.value); setCity('') }}
-            >
-              <option value="" className="bg-ink-900">All Regions</option>
-              {REGIONS.map(r => <option key={r.id} value={r.id} className="bg-ink-900">{r.label}</option>)}
-            </select>
+      {/* City search */}
+      {tier === 'City' && (
+        <div className="px-5 mb-4 relative">
+          <div className="flex items-center gap-2 bg-white/5 rounded-2xl px-4 border border-white/10 focus-within:border-accent/40 transition-all">
+            <MapPin size={14} className="text-accent shrink-0" />
+            <input
+              className="flex-1 py-3 text-sm text-white bg-transparent focus:outline-none placeholder:text-white/30"
+              placeholder="Search city…"
+              value={cityInput}
+              onChange={handleCityInput}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setTimeout(() => setFocused(false), 200)}
+              autoComplete="off"
+            />
+            {searching && <Loader2 size={13} className="animate-spin text-white/30 shrink-0" />}
+            {cityInput && !searching && (
+              <button onClick={clearCity} className="text-white/30 hover:text-white/60 shrink-0">
+                <X size={13} />
+              </button>
+            )}
           </div>
 
-          {tier === 'City' && (
-            <div className="flex items-center gap-2 bg-white/5 rounded-2xl px-4 border border-white/5">
-              <ChevronDown size={14} className="text-ink-600 shrink-0" />
-              <select
-                className="bg-transparent w-full py-3 text-sm text-white focus:ring-0 focus:outline-none appearance-none disabled:opacity-40"
-                value={city}
-                onChange={e => setCity(e.target.value)}
-                disabled={!region}
-              >
-                <option value="" className="bg-ink-900">All Cities</option>
-                {cities.map(c => <option key={c} value={c} className="bg-ink-900">{c}</option>)}
-              </select>
+          {focused && suggestions.length > 0 && (
+            <div className="absolute z-50 left-5 right-5 mt-1 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{ background: '#13131f' }}>
+              {suggestions.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onMouseDown={() => pickCity(c)}
+                  className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors"
+                >
+                  <MapPin size={12} className="text-accent shrink-0" />
+                  <span className="text-sm font-bold text-white">{c}</span>
+                </button>
+              ))}
             </div>
+          )}
+
+          {city && (
+            <p className="text-[10px] font-black mt-2 ml-1" style={{ color: '#c8ff00' }}>
+              📍 Showing rankings for {city}
+            </p>
           )}
         </div>
       )}
@@ -198,7 +252,7 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-display font-bold text-sm text-ink-100 truncate">@{player.username}</p>
-                  <p className="text-[10px] text-ink-600 font-bold">{player.city || player.region || '—'}</p>
+                  <p className="text-[10px] text-ink-600 font-bold">{player.city || '—'}</p>
                 </div>
                 <div className="text-right">
                   <p className="font-display font-bold text-lg text-accent italic">{player.wins}</p>
