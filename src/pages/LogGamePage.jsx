@@ -44,35 +44,34 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
   const mapsReady                     = useGoogleMaps()
 
   useEffect(() => {
-    if (mapsReady && !autocompleteRef.current) {
-      sessionTokenRef.current   = new window.google.maps.places.AutocompleteSessionToken()
-      autocompleteRef.current   = new window.google.maps.places.AutocompleteService()
+    if (mapsReady) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
     }
   }, [mapsReady])
 
   async function searchPlaces(q) {
-    if (q.length < 2 || !autocompleteRef.current) { setSuggestions([]); return }
+    if (q.length < 2 || !mapsReady) { setSuggestions([]); return }
     setSearching(true)
-    autocompleteRef.current.getPlacePredictions(
-      {
+    try {
+      const result = await window.google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
         input: q,
         sessionToken: sessionTokenRef.current,
-        componentRestrictions: { country: 'ph' },
-        types: ['establishment', 'geocode'],
-      },
-      (predictions, status) => {
-        setSearching(false)
-        if (status !== window.google.maps.places.PlacesServiceStatus.OK || !predictions) {
-          setSuggestions([]); return
+        includedRegionCodes: ["ph"],
+      })
+      setSuggestions((result.suggestions || []).map(s => {
+        const p = s.placePrediction
+        return {
+          placeId:   p.placeId,
+          name:      p.mainText?.text || p.text?.text || "",
+          secondary: p.secondaryText?.text || "",
         }
-        setSuggestions(predictions.map(p => ({
-          placeId:     p.place_id,
-          name:        p.structured_formatting.main_text,
-          secondary:   p.structured_formatting.secondary_text || '',
-          description: p.description,
-        })))
-      }
-    )
+      }))
+    } catch(e) {
+      console.error("Places error", e)
+      setSuggestions([])
+    } finally {
+      setSearching(false)
+    }
   }
 
   function handleInput(e) {
