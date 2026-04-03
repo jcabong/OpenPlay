@@ -11,13 +11,23 @@ function useGoogleMaps() {
   const [ready, setReady] = useState(!!window.google?.maps?.places)
   useEffect(() => {
     if (window.google?.maps?.places) { setReady(true); return }
-    if (document.getElementById('gmap-script')) return
-    const script = document.createElement('script')
-    script.id  = 'gmap-script'
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places`
-    script.async = true
-    script.onload = () => setReady(true)
-    document.head.appendChild(script)
+    const existing = document.getElementById('gmap-script')
+    if (!existing) {
+      const script = document.createElement('script')
+      script.id    = 'gmap-script'
+      script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places`
+      script.async = true
+      script.defer = true
+      document.head.appendChild(script)
+    }
+    // Poll until places is available
+    const poll = setInterval(() => {
+      if (window.google?.maps?.places) {
+        setReady(true)
+        clearInterval(poll)
+      }
+    }, 100)
+    return () => clearInterval(poll)
   }, [])
   return ready
 }
