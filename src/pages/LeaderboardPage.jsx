@@ -12,7 +12,6 @@ const TIERS = [
 function calcScore(wins, total) {
   if (total === 0) return 0
   const winRate = wins / total
-  // Score = wins * 0.6 + win_rate * 0.4 (weighted combo)
   return wins * 0.6 + winRate * 100 * 0.4
 }
 
@@ -30,16 +29,6 @@ function Avatar({ name, size = 'md', accent = false }) {
   )
 }
 
-function StatBadge({ wins, total, winRate }) {
-  return (
-    <div className="text-right">
-      <p className="font-display font-bold text-lg text-accent italic leading-none">{wins}W</p>
-      <p className="text-[9px] font-black text-ink-500 uppercase tracking-widest mt-0.5">{winRate}% WR</p>
-      <p className="text-[9px] text-ink-700 mt-0.5">{total} games</p>
-    </div>
-  )
-}
-
 function Podium({ board }) {
   if (board.length < 1) return null
   const first  = board[0]
@@ -48,14 +37,13 @@ function Podium({ board }) {
 
   return (
     <div className="flex items-end gap-2 mb-6 px-2">
-      {/* 2nd */}
       {second ? (
         <div className="flex-1 flex flex-col items-center gap-2">
           <Avatar name={second.username} />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{second.username}</p>
             <p className="font-display font-bold text-lg text-ink-300 leading-none">{second.wins}W</p>
-            <p className="text-[9px] text-ink-600">{second.winRate}%</p>
+            <p className="text-[9px] text-ink-600">{second.winRate}% WR</p>
           </div>
           <div className="w-full h-14 bg-ink-700 rounded-t-xl flex items-center justify-center">
             <span className="font-display font-bold text-ink-400 text-2xl">2</span>
@@ -63,28 +51,26 @@ function Podium({ board }) {
         </div>
       ) : <div className="flex-1" />}
 
-      {/* 1st */}
       <div className="flex-1 flex flex-col items-center gap-2">
         <div className="text-2xl">👑</div>
         <Avatar name={first.username} size="lg" accent />
         <div className="text-center">
           <p className="text-[9px] font-black text-accent truncate max-w-[80px]">@{first.username}</p>
           <p className="font-display font-bold text-2xl text-accent leading-none">{first.wins}W</p>
-          <p className="text-[9px] text-accent/60">{first.winRate}%</p>
+          <p className="text-[9px] text-accent/60">{first.winRate}% WR</p>
         </div>
         <div className="w-full h-20 bg-accent/20 border border-accent/30 rounded-t-xl flex items-center justify-center">
           <span className="font-display font-bold text-accent text-2xl">1</span>
         </div>
       </div>
 
-      {/* 3rd */}
       {third ? (
         <div className="flex-1 flex flex-col items-center gap-2">
           <Avatar name={third.username} />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{third.username}</p>
             <p className="font-display font-bold text-lg text-orange-400 leading-none">{third.wins}W</p>
-            <p className="text-[9px] text-ink-600">{third.winRate}%</p>
+            <p className="text-[9px] text-ink-600">{third.winRate}% WR</p>
           </div>
           <div className="w-full h-10 bg-orange-900/30 border border-orange-600/20 rounded-t-xl flex items-center justify-center">
             <span className="font-display font-bold text-orange-500 text-xl">3</span>
@@ -96,14 +82,15 @@ function Podium({ board }) {
 }
 
 export default function LeaderboardPage() {
-  const [sport, setSport]   = useState('badminton')
-  const [tier, setTier]     = useState('national')
-  const [board, setBoard]   = useState([])
-  const [loading, setLoading] = useState(true)
+  const [sport, setSport]               = useState('badminton')
+  const [tier, setTier]                 = useState('national')
+  const [board, setBoard]               = useState([])
+  const [loading, setLoading]           = useState(true)
   const [courtOptions, setCourtOptions] = useState([])
   const [selectedCourt, setSelectedCourt] = useState('')
+  const [cityOptions, setCityOptions]   = useState([])
+  const [selectedCity, setSelectedCity] = useState('')
 
-  // Fetch available courts from logged games for Court tier
   const fetchCourts = useCallback(async () => {
     const { data } = await supabase
       .from('games')
@@ -114,39 +101,70 @@ export default function LeaderboardPage() {
     if (data) {
       const unique = [...new Set(data.map(g => g.court_name))].sort()
       setCourtOptions(unique)
-      if (unique.length > 0 && !unique.includes(selectedCourt)) {
-        setSelectedCourt(unique[0])
-      }
+      setSelectedCourt(prev => unique.includes(prev) ? prev : (unique[0] || ''))
+    }
+  }, [sport])
+
+  const fetchCities = useCallback(async () => {
+    const { data } = await supabase
+      .from('games')
+      .select('city, user:users!user_id(city)')
+      .eq('sport', sport)
+    if (data) {
+      const allCities = data.map(g => g.city || g.user?.city || '').filter(Boolean)
+      const unique = [...new Set(allCities)].sort()
+      setCityOptions(unique)
+      setSelectedCity(prev => unique.includes(prev) ? prev : (unique[0] || ''))
     }
   }, [sport])
 
   const fetchBoard = useCallback(async () => {
     if (tier === 'court' && !selectedCourt) { setBoard([]); setLoading(false); return }
+    if (tier === 'city'  && !selectedCity)  { setBoard([]); setLoading(false); return }
     setLoading(true)
     try {
-      let q = supabase
+      const { data, error } = await supabase
         .from('games')
         .select('user_id, result, city, court_name, user:users!user_id(id, username, city)')
         .eq('sport', sport)
 
-      if (tier === 'court') q = q.eq('court_name', selectedCourt)
-
-      const { data, error } = await q
-      if (error) { console.error('fetchBoard error:', error); setLoading(false); return }
+      if (error) {
+        console.error('fetchBoard error:', error.message)
+        setBoard([])
+        setLoading(false)
+        return
+      }
       if (!data || data.length === 0) { setBoard([]); setLoading(false); return }
 
-      // Tally wins, losses per player
-      const tally = data.reduce((acc, g) => {
+      // Filter rows based on tier before tallying
+      let rows = data
+      if (tier === 'court') {
+        rows = data.filter(g => g.court_name === selectedCourt)
+      } else if (tier === 'city') {
+        rows = data.filter(g => {
+          const gameCity = g.city || g.user?.city || ''
+          return gameCity === selectedCity
+        })
+      }
+      // national + global = all rows
+
+      if (rows.length === 0) { setBoard([]); setLoading(false); return }
+
+      // Tally per player
+      const tally = rows.reduce((acc, g) => {
         const id  = g.user_id
         const usr = g.user
+        if (!usr) return acc
         if (!acc[id]) acc[id] = {
-          username: usr.username,
-          city:     usr.city || g.city || '—',
+          username: usr.username || '—',
+          city:     g.city || usr.city || '—',
           wins:     0,
           total:    0,
         }
         acc[id].total++
         if (g.result === 'win') acc[id].wins++
+        if (g.city) acc[id].city = g.city
+        else if (usr.city && acc[id].city === '—') acc[id].city = usr.city
         return acc
       }, {})
 
@@ -163,10 +181,11 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [sport, tier, selectedCourt])
+  }, [sport, tier, selectedCourt, selectedCity])
 
   useEffect(() => { fetchCourts() }, [fetchCourts])
-  useEffect(() => { fetchBoard() },  [fetchBoard])
+  useEffect(() => { fetchCities() }, [fetchCities])
+  useEffect(() => { fetchBoard()  }, [fetchBoard])
 
   const sportEmoji = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
   const TierIcon   = TIERS.find(t => t.id === tier)?.icon || Trophy
@@ -226,7 +245,7 @@ export default function LeaderboardPage() {
         <div className="px-5 mb-4">
           {courtOptions.length === 0 ? (
             <p className="text-ink-600 text-xs font-bold text-center py-2">
-              No courts found for {sportEmoji} yet — log a match at a court first!
+              No courts found — log a match at a court first!
             </p>
           ) : (
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -248,22 +267,42 @@ export default function LeaderboardPage() {
         </div>
       )}
 
-      {/* Tier label */}
+      {/* City selector */}
+      {tier === 'city' && (
+        <div className="px-5 mb-4">
+          {cityOptions.length === 0 ? (
+            <p className="text-ink-600 text-xs font-bold text-center py-2">
+              No cities found — log a match with a location first!
+            </p>
+          ) : (
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              {cityOptions.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setSelectedCity(c)}
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
+                    selectedCity === c
+                      ? 'bg-accent text-ink-900 border-accent'
+                      : 'bg-white/5 border-white/10 text-ink-500'
+                  }`}
+                >
+                  📍 {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Context label */}
       <div className="px-5 mb-3 flex items-center gap-2">
         <TierIcon size={12} className="text-accent" />
         <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">
-          {tier === 'court'    && selectedCourt ? `${selectedCourt}` : ''}
-          {tier === 'city'     ? 'City Rankings' : ''}
-          {tier === 'national' ? 'Philippines Rankings' : ''}
-          {tier === 'global'   ? 'Global Rankings' : ''}
+          {tier === 'court'    ? (selectedCourt || 'Select a court') : ''}
+          {tier === 'city'     ? (selectedCity  || 'Select a city')  : ''}
+          {tier === 'national' ? 'Philippines'                        : ''}
+          {tier === 'global'   ? 'Worldwide'                          : ''}
         </p>
-      </div>
-
-      {/* Scoring legend */}
-      <div className="px-5 mb-4">
-        <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/3 border border-white/5">
-          <p className="text-[9px] text-ink-600 font-bold">Score = Wins × 0.6 + Win Rate × 0.4</p>
-        </div>
       </div>
 
       {/* Board */}
@@ -275,17 +314,19 @@ export default function LeaderboardPage() {
         <div className="text-center py-16 px-6">
           <p className="text-4xl mb-3">{sportEmoji}</p>
           <p className="text-ink-500 font-black uppercase text-xs tracking-widest">No data yet</p>
-          <p className="text-ink-700 text-xs mt-1">Be the first to log a match!</p>
+          <p className="text-ink-700 text-xs mt-1">
+            {tier === 'court' ? 'Log a match at this court!' :
+             tier === 'city'  ? 'No players found in this city yet.' :
+             'Be the first to log a match!'}
+          </p>
         </div>
       ) : (
         <div className="px-4 space-y-2">
           <Podium board={board} />
-
-          {/* Rest of board */}
           {board.length > 3 && (
             <div className="glass rounded-[1.5rem] border border-white/10 overflow-hidden">
               {board.slice(3).map((player, i) => (
-                <div key={player.username} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
+                <div key={player.username + i} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
                   <div className="w-7 h-7 rounded-lg bg-ink-800 flex items-center justify-center font-bold text-sm text-ink-500 shrink-0">
                     {i + 4}
                   </div>
@@ -296,7 +337,11 @@ export default function LeaderboardPage() {
                       <MapPin size={8} /> {player.city}
                     </p>
                   </div>
-                  <StatBadge wins={player.wins} total={player.total} winRate={player.winRate} />
+                  <div className="text-right">
+                    <p className="font-display font-bold text-lg text-accent italic leading-none">{player.wins}W</p>
+                    <p className="text-[9px] font-black text-ink-500 uppercase tracking-widest">{player.winRate}% WR</p>
+                    <p className="text-[9px] text-ink-700">{player.total} games</p>
+                  </div>
                 </div>
               ))}
             </div>
