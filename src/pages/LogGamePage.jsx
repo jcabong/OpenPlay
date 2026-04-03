@@ -1,34 +1,184 @@
-import { useState, useEffect, useRef } from 'react'
-import { supabase, SPORTS, REGIONS, CITIES_BY_REGION } from '../lib/supabase'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Users, Search, Share2, Loader2, X, Image, ChevronDown, Zap } from 'lucide-react'
+import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
+
+// ── Smart location search (OpenStreetMap Nominatim, no API key) ──────────────
+function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
+  const [query, setQuery]           = useState(courtName || '')
+  const [suggestions, setSuggestions] = useState([])
+  const [searching, setSearching]   = useState(false)
+  const [gpsLoading, setGpsLoading] = useState(false)
+  const [focused, setFocused]       = useState(false)
+  const debounceRef                 = useRef(null)
+
+  // Show selected location as a badge
+  const hasLocation = courtName || city
+
+  async function searchPlaces(q) {
+    if (q.length < 2) { setSuggestions([]); return }
+    setSearching(true)
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=ph`
+      )
+      const data = await res.json()
+      setSuggestions(data.map(r => ({
+        display: r.display_name.split(',').slice(0, 2).join(',').trim(),
+        full: r.display_name,
+        city: r.address?.city || r.address?.town || r.address?.municipality || r.address?.county || '',
+        name: r.address?.amenity || r.address?.leisure || r.address?.building || r.name || '',
+      })))
+    } catch {
+      setSuggestions([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function handleInput(e) {
+    const val = e.target.value
+    setQuery(val)
+    onCourtChange(val)
+    onCityChange('')
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchPlaces(val), 350)
+  }
+
+  function pickSuggestion(s) {
+    setQuery(s.display)
+    onCourtChange(s.name || s.display.split(',')[0].trim())
+    onCityChange(s.city)
+    setSuggestions([])
+  }
+
+  function clearLocation() {
+    setQuery('')
+    onCourtChange('')
+    onCityChange('')
+    setSuggestions([])
+  }
+
+  async function detectGPS() {
+    if (!navigator.geolocation) return alert('Geolocation not supported')
+    setGpsLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`
+          )
+          const data = await res.json()
+          const name  = data.address?.amenity || data.address?.leisure || data.address?.building || ''
+          const cityVal = data.address?.city || data.address?.town || data.address?.municipality || data.address?.county || ''
+          const display = name ? `${name}, ${cityVal}` : cityVal
+          setQuery(display)
+          onCourtChange(name || display)
+          onCityChange(cityVal)
+        } catch {
+          alert('Could not get location')
+        } finally {
+          setGpsLoading(false)
+        }
+      },
+      () => { setGpsLoading(false); alert('Location access denied') }
+    )
+  }
+
+  return (
+    <div>
+      {/* Court/Location search input row */}
+      <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
+        <MapPin size={15} style={{ color: '#c8ff00', opacity: 0.8 }} className="shrink-0" />
+        <input
+          className="flex-1 py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
+          style={{ color: '#ffffff', caretColor: '#c8ff00' }}
+          placeholder="Search court or city…"
+          value={query}
+          onChange={handleInput}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 200)}
+          autoComplete="off"
+        />
+        {searching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
+        {query && !searching && (
+          <button type="button" onClick={clearLocation} className="shrink-0 text-white/30 hover:text-white/60">
+            <X size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={detectGPS}
+          disabled={gpsLoading}
+          title="Use my location"
+          className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
+          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
+        >
+          {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
+        </button>
+      </div>
+
+      {/* Suggestions dropdown */}
+      {focused && suggestions.length > 0 && (
+        <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
+          style={{ background: '#13131f' }}>
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onMouseDown={() => pickSuggestion(s)}
+              className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors"
+            >
+              <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
+              <div>
+                <p className="text-xs font-bold text-white leading-tight">
+                  {s.display.split(',')[0].trim()}
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                  {s.display.split(',').slice(1).join(',').trim()}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Selected city badge */}
+      {city && (
+        <div className="px-4 pb-2 flex items-center gap-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+            style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+            📍 {city}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function LogGamePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(false)
-  const [mediaFiles, setMediaFiles] = useState([])
+  const [loading, setLoading]         = useState(false)
+  const [mediaFiles, setMediaFiles]   = useState([])
   const [mediaPreviews, setMediaPreviews] = useState([])
   const fileInputRef = useRef(null)
 
   const [formData, setFormData] = useState({
-    sport: 'badminton',
+    sport:      'badminton',
     court_name: '',
-    region: '',
-    city: '',
-    result: 'win',
-    score: '',
-    intensity: 'Med',
-    content: '',
+    city:       '',
+    result:     'win',
+    score:      '',
+    intensity:  'Med',
+    content:    '',
   })
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery]   = useState('')
   const [searchResults, setSearchResults] = useState([])
-  const [taggedUser, setTaggedUser] = useState(null)
-  const [isSearching, setIsSearching] = useState(false)
-
-  const cities = formData.region ? (CITIES_BY_REGION[formData.region] || []) : []
+  const [taggedUser, setTaggedUser]     = useState(null)
+  const [isSearching, setIsSearching]   = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -65,8 +215,7 @@ export default function LogGamePage() {
   }
 
   async function uploadMedia() {
-    const urls = []
-    const types = []
+    const urls = [], types = []
     for (const file of mediaFiles) {
       const ext = file.name.split('.').pop()
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
@@ -91,52 +240,44 @@ export default function LogGamePage() {
         : { urls: [], types: [] }
 
       const { data: game, error: gameError } = await supabase.from('games').insert([{
-        user_id: user.id,
-        sport: formData.sport,
-        court_name: formData.court_name,
-        city: formData.city,
-        region: formData.region,
-        result: formData.result,
-        score: formData.score,
-        intensity: formData.intensity,
-        opponent_name: taggedUser ? taggedUser.username : searchQuery,
+        user_id:            user.id,
+        sport:              formData.sport,
+        court_name:         formData.court_name,
+        city:               formData.city,
+        result:             formData.result,
+        score:              formData.score,
+        intensity:          formData.intensity,
+        opponent_name:      taggedUser ? taggedUser.username : searchQuery,
         tagged_opponent_id: taggedUser?.id || null,
-        created_at: new Date().toISOString(),
+        created_at:         new Date().toISOString(),
       }]).select().single()
 
       if (gameError) throw gameError
 
-      const sport = SPORTS.find(s => s.id === formData.sport)
+      const sport    = SPORTS.find(s => s.id === formData.sport)
       const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
       const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
 
       const { error: postError } = await supabase.from('posts').insert([{
-        user_id: user.id,
-        content: formData.content || autoContent,
-        sport: formData.sport,
+        author_id:     user.id,
+        user_id:       user.id,
+        content:       formData.content || autoContent,
+        sport:         formData.sport,
         location_name: formData.court_name,
-        city: formData.city,
-        region: formData.region,
+        city:          formData.city,
         media_urls,
         media_types,
-        game_id: game.id,
-        inserted_at: new Date().toISOString(),
+        game_id:       game.id,
+        inserted_at:   new Date().toISOString(),
       }])
 
       if (postError) console.warn('Feed post failed:', postError.message)
-
       navigate('/')
     } catch (err) {
       alert('Error saving match: ' + err.message)
     } finally {
       setLoading(false)
     }
-  }
-
-  const intensityColors = {
-    Low: { active: 'bg-blue-500/20 border-blue-400 text-blue-300', dot: 'bg-blue-400' },
-    Med: { active: 'bg-yellow-500/20 border-yellow-400 text-yellow-300', dot: 'bg-yellow-400' },
-    High: { active: 'bg-red-500/20 border-red-400 text-red-300', dot: 'bg-red-400' },
   }
 
   return (
@@ -179,62 +320,24 @@ export default function LogGamePage() {
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
           </div>
-
-          {/* Court Name */}
-          <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-            <MapPin size={15} style={{ color: '#c8ff00', opacity: 0.7 }} className="shrink-0" />
-            <input
-              className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-              style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Court / Venue name"
-              value={formData.court_name}
-              onChange={e => setFormData({ ...formData, court_name: e.target.value })}
-              required
-            />
-          </div>
-
-          {/* Region */}
-          <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-            <ChevronDown size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
-            <select
-              className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 appearance-none"
-              style={{ color: formData.region ? '#ffffff' : 'rgba(255,255,255,0.35)' }}
-              value={formData.region}
-              onChange={e => setFormData({ ...formData, region: e.target.value, city: '' })}
-              required
-            >
-              <option value="" className="bg-gray-900 text-gray-300">Select Region...</option>
-              {REGIONS.map(r => <option key={r.id} value={r.id} className="bg-gray-900 text-white">{r.label}</option>)}
-            </select>
-          </div>
-
-          {/* City */}
-          <div className="flex items-center gap-3 px-4 py-1">
-            <ChevronDown size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
-            <select
-              className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 appearance-none"
-              style={{ color: formData.city ? '#ffffff' : 'rgba(255,255,255,0.35)', opacity: !formData.region ? 0.4 : 1 }}
-              value={formData.city}
-              onChange={e => setFormData({ ...formData, city: e.target.value })}
-              disabled={!formData.region}
-              required
-            >
-              <option value="" className="bg-gray-900 text-gray-300">Select City / Municipality...</option>
-              {cities.map(c => <option key={c} value={c} className="bg-gray-900 text-white">{c}</option>)}
-            </select>
-          </div>
+          <LocationSearch
+            courtName={formData.court_name}
+            city={formData.city}
+            onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
+            onCityChange={v => setFormData(f => ({ ...f, city: v }))}
+          />
         </div>
 
         {/* Match Details Card */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>⚔️ Match Details</p>
+            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
           </div>
 
-          {/* Opponent */}
-          <div className="relative border-b border-white/5">
-            <div className="flex items-center gap-3 px-4 py-1">
-              <Users size={15} style={{ color: taggedUser ? '#c8ff00' : 'rgba(255,255,255,0.4)' }} className="shrink-0" />
+          {/* Opponent search */}
+          <div className="relative">
+            <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
+              <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
               <input
                 className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
                 style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
@@ -295,28 +398,22 @@ export default function LogGamePage() {
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
           <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, result: 'win' })}
-              className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
-              style={formData.result === 'win'
-                ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
-                : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
-              }
-            >
-              WIN
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, result: 'loss' })}
-              className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
-              style={formData.result === 'loss'
-                ? { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
-                : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
-              }
-            >
-              LOSS
-            </button>
+            {['win', 'loss'].map(r => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setFormData({ ...formData, result: r })}
+                className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
+                style={formData.result === r
+                  ? r === 'win'
+                    ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
+                    : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
+                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
+                }
+              >
+                {r.toUpperCase()}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -327,29 +424,23 @@ export default function LogGamePage() {
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>Intensity</p>
           </div>
           <div className="flex gap-2">
-            {['Low', 'Med', 'High'].map(lvl => (
+            {[
+              { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
+              { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
+              { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
+            ].map(({ lvl, active, dot }) => (
               <button
                 key={lvl}
                 type="button"
                 onClick={() => setFormData({ ...formData, intensity: lvl })}
                 className="flex-1 py-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-1.5"
                 style={formData.intensity === lvl
-                  ? intensityColors[lvl].active.includes('blue')
-                    ? { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }
-                    : lvl === 'Med'
-                      ? { background: 'rgba(234,179,8,0.15)', borderColor: '#facc15', color: '#fde68a' }
-                      : { background: 'rgba(239,68,68,0.15)', borderColor: '#f87171', color: '#fca5a5' }
+                  ? active
                   : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }
                 }
               >
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: formData.intensity === lvl
-                      ? lvl === 'Low' ? '#60a5fa' : lvl === 'Med' ? '#facc15' : '#f87171'
-                      : 'rgba(255,255,255,0.2)'
-                  }}
-                />
+                <span className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
                 {lvl}
               </button>
             ))}
@@ -388,14 +479,7 @@ export default function LogGamePage() {
             <Image size={15} />
             Add Photos or Video
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            className="hidden"
-            onChange={handleMediaSelect}
-          />
+          <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
         </div>
 
         {/* Submit */}
@@ -409,10 +493,7 @@ export default function LogGamePage() {
             boxShadow: '0 0 30px rgba(200,255,0,0.35)',
           }}
         >
-          {loading
-            ? <Loader2 className="animate-spin" />
-            : <><Share2 size={22} /> Sync Game</>
-          }
+          {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={22} /> Sync Game</>}
         </button>
       </form>
     </div>
