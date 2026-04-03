@@ -252,7 +252,7 @@ export default function LeaderboardPage() {
                 key={t.id}
                 onClick={() => setTier(t.id)}
                 className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all flex flex-col items-center gap-1 ${
-                  tier === t.id ? 'bg-accent text-ink-900' : 'text-ink-500 hover:text-ink-300'
+                  tier === t.id ? 'bg-accent text-ink-900' : 'text-ink-300 hover:text-white'
                 }`}
               >
                 <Icon size={12} />
@@ -294,7 +294,7 @@ export default function LeaderboardPage() {
       ) : board.length === 0 ? (
         <div className="text-center py-16 px-6">
           <p className="text-4xl mb-3">{sportEmoji}</p>
-          <p className="text-ink-500 font-black uppercase text-xs tracking-widest">No data yet</p>
+          <p className="text-ink-300 font-black uppercase text-xs tracking-widest">No data yet</p>
           <p className="text-ink-700 text-xs mt-1">
             {tier === 'court'    ? 'Log a match at this court!' :
              tier === 'city'     ? 'No players found in this city yet.' :
@@ -315,14 +315,14 @@ export default function LeaderboardPage() {
                   <Avatar name={player.username} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="font-display font-bold text-sm text-ink-100 truncate">@{player.username}</p>
-                    <p className="text-[10px] text-ink-600 font-bold flex items-center gap-1">
+                    <p className="text-[10px] text-ink-400 font-bold flex items-center gap-1">
                       <MapPin size={8} /> {player.city}{player.province && player.province !== '—' ? ` · ${player.province}` : ''}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-display font-bold text-lg text-accent italic leading-none">{player.wins}W</p>
                     <p className="text-[9px] font-black text-ink-500 uppercase tracking-widest">{player.winRate}% WR</p>
-                    <p className="text-[9px] text-ink-700">{player.total} games</p>
+                    <p className="text-[9px] text-ink-500">{player.total} games</p>
                   </div>
                 </div>
               ))}

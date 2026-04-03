@@ -70,7 +70,7 @@ function MentionInput({ value, onChange, submitting }) {
           onChange={handleChange}
           onKeyDown={e => { if (e.key === 'Escape') setShowDrop(false) }}
           placeholder="Comment… use @ to tag someone"
-          className="w-full bg-ink-800 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-accent/50 outline-none transition-colors"
+          className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-white placeholder:text-ink-400 focus:border-accent/50 outline-none transition-colors"
         />
         {showDrop && results.length > 0 && (
           <div className="absolute bottom-full mb-1 left-0 w-full bg-ink-700 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 animate-slide-up">
@@ -325,24 +325,24 @@ export default function PostCard({ post, onRefresh }) {
       )}
 
       {/* ── Actions ── */}
-      <div className="flex gap-5 pt-3 border-t border-white/5">
+      <div className="flex gap-2 pt-3 border-t border-white/5">
         <button
           onClick={toggleLike}
-          className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${hasLiked ? 'text-accent' : 'text-ink-600 hover:text-ink-300'}`}
+          className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border ${hasLiked ? 'text-accent border-accent/30 bg-accent/10' : 'text-ink-300 border-white/10 bg-white/5 hover:text-accent hover:border-accent/30'}`}
         >
-          <Heart size={16} className={hasLiked ? 'fill-accent' : ''} />
+          <Heart size={15} className={hasLiked ? 'fill-accent' : ''} />
           GG {likesCount > 0 && `(${likesCount})`}
         </button>
 
         <button
           onClick={() => setShowComments(v => !v)}
-          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-600 hover:text-ink-300 transition-colors"
+          className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border ${showComments ? 'text-white border-white/20 bg-white/10' : 'text-ink-300 border-white/10 bg-white/5 hover:text-white hover:border-white/20'}`}
         >
-          <MessageCircle size={16} />
+          <MessageCircle size={15} />
           Comments {commCount > 0 && `(${commCount})`}
         </button>
 
-        <button className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ink-600 hover:text-ink-300 transition-colors ml-auto">
+        <button className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-ink-300 hover:text-white transition-all px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 ml-auto">
           <Share2 size={14} />
         </button>
       </div>
@@ -353,7 +353,7 @@ export default function PostCard({ post, onRefresh }) {
           {post.comments?.length > 0 && (
             <div className="space-y-2">
               {post.comments.map(c => (
-                <div key={c.id} className="text-[11px] bg-white/[0.02] px-3 py-2.5 rounded-xl border border-white/5 leading-relaxed">
+                <div key={c.id} className="text-[11px] bg-white/5 px-3 py-2.5 rounded-xl border border-white/10 leading-relaxed text-ink-200">
                   <Link
                     to={`/user/${c.users?.username}`}
                     className="text-accent font-bold mr-2 hover:underline"
