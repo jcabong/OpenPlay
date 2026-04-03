@@ -85,14 +85,30 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange, onProvin
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
 
-  function pickSuggestion(s) {
+  async function pickSuggestion(s) {
     setQuery(s.name)
     onCourtChange(s.name)
-    // Extract city from secondary text (e.g. "Lipa, Batangas, Philippines")
-    const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-    onCityChange(parts[0] || '')
-    onProvinceChange(parts[1] || '')
     setSuggestions([])
+
+    // Use Place Details to get accurate city + province from address_components
+    try {
+      const place = new window.google.maps.places.Place({
+        id: s.placeId,
+        requestedLanguage: 'en',
+      })
+      await place.fetchFields({ fields: ['addressComponents'] })
+      const comps = place.addressComponents || []
+      const cityComp     = comps.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3') || c.types.includes('sublocality_level_1'))
+      const provinceComp = comps.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
+      onCityChange(cityComp?.longText || cityComp?.long_name || '')
+      onProvinceChange(provinceComp?.longText || provinceComp?.long_name || '')
+    } catch {
+      // Fallback to parsing secondary text
+      const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
+      onCityChange(parts[0] || '')
+      onProvinceChange(parts[1] || '')
+    }
+
     // Refresh session token after selection
     if (window.google?.maps?.places) {
       sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
