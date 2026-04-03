@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { supabase, SPORTS, REGIONS } from '../lib/supabase'
+import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Calendar, MapPin, Users, Clock, ChevronDown, Plus, Loader2, X } from 'lucide-react'
 
@@ -70,11 +70,12 @@ function HostModal({ onClose, onSuccess, user }) {
             required
           />
           <div className="grid grid-cols-2 gap-3">
-            <select className="bg-white/5 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white focus:outline-none focus:border-accent/50 appearance-none"
-              value={form.region} onChange={e => setForm({...form, region: e.target.value, city: ''})}>
-              <option value="" className="bg-ink-900">Region *</option>
-              {REGIONS.map(r => <option key={r.id} value={r.id} className="bg-ink-900">{r.label}</option>)}
-            </select>
+            <input
+              className="bg-white/5 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white placeholder:text-ink-700 focus:outline-none focus:border-accent/50"
+              placeholder="Region *"
+              value={form.region}
+              onChange={e => setForm({...form, region: e.target.value})}
+            />
             <input
               className="bg-white/5 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white placeholder:text-ink-700 focus:outline-none focus:border-accent/50"
               placeholder="City *"

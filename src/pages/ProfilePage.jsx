@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { supabase, SPORTS, REGIONS, CITIES_BY_REGION } from '../lib/supabase'
+import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
   Trophy, MapPin, Edit3, Loader2, X,
@@ -18,8 +18,6 @@ function EditProfileModal({ profile, onClose, onSaved }) {
     region:       profile?.region       || '',
     city:         profile?.city         || '',
   })
-
-  const cities = form.region ? (CITIES_BY_REGION[form.region] || []) : []
 
   async function save(e) {
     e.preventDefault()
@@ -75,27 +73,22 @@ function EditProfileModal({ profile, onClose, onSaved }) {
 
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-1.5 block">Region</label>
-            <select
-              className="w-full bg-ink-900 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white focus:outline-none appearance-none"
+            <input
+              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white focus:border-accent/50 focus:outline-none placeholder:text-ink-700"
+              placeholder="e.g. NCR, Region IV-A…"
               value={form.region}
-              onChange={e => setForm({ ...form, region: e.target.value, city: '' })}
-            >
-              <option value="">Select region…</option>
-              {REGIONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-            </select>
+              onChange={e => setForm({ ...form, region: e.target.value })}
+            />
           </div>
 
           <div>
             <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-1.5 block">City / Municipality</label>
-            <select
-              className="w-full bg-ink-900 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white focus:outline-none appearance-none disabled:opacity-40"
+            <input
+              className="w-full bg-white/5 border border-white/10 rounded-2xl py-3.5 px-4 text-sm text-white focus:border-accent/50 focus:outline-none placeholder:text-ink-700"
+              placeholder="e.g. Makati, Quezon City…"
               value={form.city}
               onChange={e => setForm({ ...form, city: e.target.value })}
-              disabled={!form.region}
-            >
-              <option value="">Select city…</option>
-              {cities.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            />
           </div>
 
           <button
