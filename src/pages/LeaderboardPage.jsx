@@ -126,7 +126,7 @@ export default function LeaderboardPage() {
     try {
       let q = supabase
         .from('games')
-        .select('user_id, result, city, court_name, users!inner(id, username, city)')
+        .select('user_id, result, city, court_name, user:users!user_id(id, username, city)')
         .eq('sport', sport)
 
       if (tier === 'court') q = q.eq('court_name', selectedCourt)
@@ -138,7 +138,7 @@ export default function LeaderboardPage() {
       // Tally wins, losses per player
       const tally = data.reduce((acc, g) => {
         const id  = g.user_id
-        const usr = g.users
+        const usr = g.user
         if (!acc[id]) acc[id] = {
           username: usr.username,
           city:     usr.city || g.city || '—',
