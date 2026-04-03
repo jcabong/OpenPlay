@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
-import { Trophy, Loader2, MapPin, Building2, Globe, Flag } from 'lucide-react'
+import { Trophy, Loader2, MapPin, Building2, Globe, Flag, Map } from 'lucide-react'
 
 const TIERS = [
   { id: 'court',    label: 'Court',    icon: Building2 },
   { id: 'city',     label: 'City',     icon: MapPin    },
+  { id: 'province', label: 'Province', icon: Map       },
   { id: 'national', label: 'National', icon: Flag      },
   { id: 'global',   label: 'Global',   icon: Globe     },
 ]
@@ -34,7 +35,6 @@ function Podium({ board }) {
   const first  = board[0]
   const second = board[1]
   const third  = board[2]
-
   return (
     <div className="flex items-end gap-2 mb-6 px-2">
       {second ? (
@@ -81,51 +81,71 @@ function Podium({ board }) {
   )
 }
 
+function ScopeSelector({ options, selected, onSelect, emoji }) {
+  if (options.length === 0) return null
+  return (
+    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-5 mb-4">
+      {options.map(o => (
+        <button
+          key={o}
+          onClick={() => onSelect(o)}
+          className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
+            selected === o
+              ? 'bg-accent text-ink-900 border-accent'
+              : 'bg-white/5 border-white/10 text-ink-500'
+          }`}
+        >
+          {emoji} {o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function LeaderboardPage() {
-  const [sport, setSport]               = useState('badminton')
-  const [tier, setTier]                 = useState('national')
-  const [board, setBoard]               = useState([])
-  const [loading, setLoading]           = useState(true)
-  const [courtOptions, setCourtOptions] = useState([])
-  const [selectedCourt, setSelectedCourt] = useState('')
-  const [cityOptions, setCityOptions]   = useState([])
-  const [selectedCity, setSelectedCity] = useState('')
+  const [sport, setSport]                   = useState('badminton')
+  const [tier, setTier]                     = useState('national')
+  const [board, setBoard]                   = useState([])
+  const [loading, setLoading]               = useState(true)
+  const [courtOptions, setCourtOptions]     = useState([])
+  const [selectedCourt, setSelectedCourt]   = useState('')
+  const [cityOptions, setCityOptions]       = useState([])
+  const [selectedCity, setSelectedCity]     = useState('')
+  const [provinceOptions, setProvinceOptions] = useState([])
+  const [selectedProvince, setSelectedProvince] = useState('')
 
-  const fetchCourts = useCallback(async () => {
+  // Fetch all scope options from games
+  const fetchOptions = useCallback(async () => {
     const { data } = await supabase
       .from('games')
-      .select('court_name')
+      .select('court_name, city, province, user:users!user_id(city)')
       .eq('sport', sport)
-      .not('court_name', 'is', null)
-      .neq('court_name', '')
-    if (data) {
-      const unique = [...new Set(data.map(g => g.court_name))].sort()
-      setCourtOptions(unique)
-      setSelectedCourt(prev => unique.includes(prev) ? prev : (unique[0] || ''))
-    }
-  }, [sport])
 
-  const fetchCities = useCallback(async () => {
-    const { data } = await supabase
-      .from('games')
-      .select('city, user:users!user_id(city)')
-      .eq('sport', sport)
-    if (data) {
-      const allCities = data.map(g => g.city || g.user?.city || '').filter(Boolean)
-      const unique = [...new Set(allCities)].sort()
-      setCityOptions(unique)
-      setSelectedCity(prev => unique.includes(prev) ? prev : (unique[0] || ''))
-    }
+    if (!data) return
+
+    const courts   = [...new Set(data.map(g => g.court_name).filter(Boolean))].sort()
+    const cities   = [...new Set(data.map(g => g.city || g.user?.city || '').filter(Boolean))].sort()
+    const provinces = [...new Set(data.map(g => g.province).filter(Boolean))].sort()
+
+    setCourtOptions(courts)
+    setCityOptions(cities)
+    setProvinceOptions(provinces)
+
+    setSelectedCourt(prev   => courts.includes(prev)    ? prev : (courts[0]    || ''))
+    setSelectedCity(prev    => cities.includes(prev)    ? prev : (cities[0]    || ''))
+    setSelectedProvince(prev => provinces.includes(prev) ? prev : (provinces[0] || ''))
   }, [sport])
 
   const fetchBoard = useCallback(async () => {
-    if (tier === 'court' && !selectedCourt) { setBoard([]); setLoading(false); return }
-    if (tier === 'city'  && !selectedCity)  { setBoard([]); setLoading(false); return }
+    if (tier === 'court'    && !selectedCourt)    { setBoard([]); setLoading(false); return }
+    if (tier === 'city'     && !selectedCity)     { setBoard([]); setLoading(false); return }
+    if (tier === 'province' && !selectedProvince) { setBoard([]); setLoading(false); return }
+
     setLoading(true)
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('user_id, result, city, court_name, user:users!user_id(id, username, city)')
+        .select('user_id, result, city, province, court_name, user:users!user_id(id, username, city)')
         .eq('sport', sport)
 
       if (error) {
@@ -136,16 +156,11 @@ export default function LeaderboardPage() {
       }
       if (!data || data.length === 0) { setBoard([]); setLoading(false); return }
 
-      // Filter rows based on tier before tallying
+      // Filter rows based on tier
       let rows = data
-      if (tier === 'court') {
-        rows = data.filter(g => g.court_name === selectedCourt)
-      } else if (tier === 'city') {
-        rows = data.filter(g => {
-          const gameCity = g.city || g.user?.city || ''
-          return gameCity === selectedCity
-        })
-      }
+      if (tier === 'court')    rows = data.filter(g => g.court_name === selectedCourt)
+      if (tier === 'city')     rows = data.filter(g => (g.city || g.user?.city || '') === selectedCity)
+      if (tier === 'province') rows = data.filter(g => g.province === selectedProvince)
       // national + global = all rows
 
       if (rows.length === 0) { setBoard([]); setLoading(false); return }
@@ -158,13 +173,14 @@ export default function LeaderboardPage() {
         if (!acc[id]) acc[id] = {
           username: usr.username || '—',
           city:     g.city || usr.city || '—',
+          province: g.province || '—',
           wins:     0,
           total:    0,
         }
         acc[id].total++
         if (g.result === 'win') acc[id].wins++
-        if (g.city) acc[id].city = g.city
-        else if (usr.city && acc[id].city === '—') acc[id].city = usr.city
+        if (g.city)     acc[id].city = g.city
+        if (g.province) acc[id].province = g.province
         return acc
       }, {})
 
@@ -181,14 +197,21 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [sport, tier, selectedCourt, selectedCity])
+  }, [sport, tier, selectedCourt, selectedCity, selectedProvince])
 
-  useEffect(() => { fetchCourts() }, [fetchCourts])
-  useEffect(() => { fetchCities() }, [fetchCities])
-  useEffect(() => { fetchBoard()  }, [fetchBoard])
+  useEffect(() => { fetchOptions() }, [fetchOptions])
+  useEffect(() => { fetchBoard()   }, [fetchBoard])
 
   const sportEmoji = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
   const TierIcon   = TIERS.find(t => t.id === tier)?.icon || Trophy
+
+  const contextLabel = {
+    court:    selectedCourt    || 'Select a court',
+    city:     selectedCity     || 'Select a city',
+    province: selectedProvince || 'Select a province',
+    national: 'Philippines',
+    global:   'Worldwide',
+  }[tier]
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-24">
@@ -199,7 +222,7 @@ export default function LeaderboardPage() {
           <Trophy size={20} className="text-accent" />
           <h1 className="font-display text-3xl font-bold italic uppercase tracking-tighter text-white">Rankings</h1>
         </div>
-        <p className="text-accent text-[9px] font-black uppercase tracking-widest">Court · City · National · Global</p>
+        <p className="text-accent text-[9px] font-black uppercase tracking-widest">Court · City · Province · National · Global</p>
       </div>
 
       {/* Sport filter */}
@@ -240,69 +263,27 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* Court selector */}
+      {/* Scope selectors */}
       {tier === 'court' && (
-        <div className="px-5 mb-4">
-          {courtOptions.length === 0 ? (
-            <p className="text-ink-600 text-xs font-bold text-center py-2">
-              No courts found — log a match at a court first!
-            </p>
-          ) : (
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-              {courtOptions.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setSelectedCourt(c)}
-                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
-                    selectedCourt === c
-                      ? 'bg-accent text-ink-900 border-accent'
-                      : 'bg-white/5 border-white/10 text-ink-500'
-                  }`}
-                >
-                  🏟️ {c}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        courtOptions.length === 0
+          ? <p className="text-ink-600 text-xs font-bold text-center py-2 px-5">No courts yet — log a match at a court first!</p>
+          : <ScopeSelector options={courtOptions} selected={selectedCourt} onSelect={setSelectedCourt} emoji="🏟️" />
       )}
-
-      {/* City selector */}
       {tier === 'city' && (
-        <div className="px-5 mb-4">
-          {cityOptions.length === 0 ? (
-            <p className="text-ink-600 text-xs font-bold text-center py-2">
-              No cities found — log a match with a location first!
-            </p>
-          ) : (
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-              {cityOptions.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setSelectedCity(c)}
-                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
-                    selectedCity === c
-                      ? 'bg-accent text-ink-900 border-accent'
-                      : 'bg-white/5 border-white/10 text-ink-500'
-                  }`}
-                >
-                  📍 {c}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        cityOptions.length === 0
+          ? <p className="text-ink-600 text-xs font-bold text-center py-2 px-5">No cities yet — log a match with a location first!</p>
+          : <ScopeSelector options={cityOptions} selected={selectedCity} onSelect={setSelectedCity} emoji="🏙️" />
+      )}
+      {tier === 'province' && (
+        provinceOptions.length === 0
+          ? <p className="text-ink-600 text-xs font-bold text-center py-2 px-5">No provinces yet — log a match with a location first!</p>
+          : <ScopeSelector options={provinceOptions} selected={selectedProvince} onSelect={setSelectedProvince} emoji="🗺️" />
       )}
 
       {/* Context label */}
       <div className="px-5 mb-3 flex items-center gap-2">
         <TierIcon size={12} className="text-accent" />
-        <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">
-          {tier === 'court'    ? (selectedCourt || 'Select a court') : ''}
-          {tier === 'city'     ? (selectedCity  || 'Select a city')  : ''}
-          {tier === 'national' ? 'Philippines'                        : ''}
-          {tier === 'global'   ? 'Worldwide'                          : ''}
-        </p>
+        <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">{contextLabel}</p>
       </div>
 
       {/* Board */}
@@ -315,8 +296,9 @@ export default function LeaderboardPage() {
           <p className="text-4xl mb-3">{sportEmoji}</p>
           <p className="text-ink-500 font-black uppercase text-xs tracking-widest">No data yet</p>
           <p className="text-ink-700 text-xs mt-1">
-            {tier === 'court' ? 'Log a match at this court!' :
-             tier === 'city'  ? 'No players found in this city yet.' :
+            {tier === 'court'    ? 'Log a match at this court!' :
+             tier === 'city'     ? 'No players found in this city yet.' :
+             tier === 'province' ? 'No players found in this province yet.' :
              'Be the first to log a match!'}
           </p>
         </div>
@@ -334,7 +316,7 @@ export default function LeaderboardPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-display font-bold text-sm text-ink-100 truncate">@{player.username}</p>
                     <p className="text-[10px] text-ink-600 font-bold flex items-center gap-1">
-                      <MapPin size={8} /> {player.city}
+                      <MapPin size={8} /> {player.city}{player.province && player.province !== '—' ? ` · ${player.province}` : ''}
                     </p>
                   </div>
                   <div className="text-right">

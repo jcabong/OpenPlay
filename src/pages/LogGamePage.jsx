@@ -32,7 +32,7 @@ function useGoogleMaps() {
   return ready
 }
 
-function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
+function LocationSearch({ courtName, city, onCourtChange, onCityChange, onProvinceChange }) {
   const [query, setQuery]             = useState(courtName || '')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching]     = useState(false)
@@ -79,6 +79,8 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
     setQuery(val)
     onCourtChange(val)
     onCityChange('')
+    onProvinceChange('')
+    onProvinceChange('')
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
@@ -89,6 +91,7 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
     // Extract city from secondary text (e.g. "Lipa, Batangas, Philippines")
     const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
     onCityChange(parts[0] || '')
+    onProvinceChange(parts[1] || '')
     setSuggestions([])
     // Refresh session token after selection
     if (window.google?.maps?.places) {
@@ -100,6 +103,7 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
     setQuery('')
     onCourtChange('')
     onCityChange('')
+    onProvinceChange('')
     setSuggestions([])
   }
 
@@ -117,12 +121,15 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange }) {
           if (!result) { alert('Could not get location'); setGpsLoading(false); return }
           const components = result.address_components
           const premise    = components.find(c => c.types.includes('premise') || c.types.includes('establishment'))
-          const cityComp   = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
-          const name       = premise?.long_name || result.formatted_address.split(',')[0].trim()
-          const cityVal    = cityComp?.long_name || ''
+          const cityComp     = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
+          const provinceComp = components.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
+          const name         = premise?.long_name || result.formatted_address.split(',')[0].trim()
+          const cityVal      = cityComp?.long_name || ''
+          const provinceVal  = provinceComp?.long_name || ''
           setQuery(name)
           onCourtChange(name)
           onCityChange(cityVal)
+          onProvinceChange(provinceVal)
         } catch {
           alert('Could not get location')
         } finally {
@@ -212,6 +219,7 @@ export default function LogGamePage() {
     sport:      'badminton',
     court_name: '',
     city:       '',
+    province:   '',
     result:     'win',
     score:      '',
     intensity:  'Med',
@@ -287,6 +295,7 @@ export default function LogGamePage() {
         sport:              formData.sport,
         court_name:         formData.court_name,
         city:               formData.city,
+        province:           formData.province,
         result:             formData.result,
         score:              formData.score,
         intensity:          formData.intensity,
@@ -308,6 +317,7 @@ export default function LogGamePage() {
         sport:         formData.sport,
         location_name: formData.court_name,
         city:          formData.city,
+        province:      formData.province,
         media_urls,
         media_types,
         game_id:       game.id,
@@ -368,6 +378,7 @@ export default function LogGamePage() {
             city={formData.city}
             onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
             onCityChange={v => setFormData(f => ({ ...f, city: v }))}
+            onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
           />
         </div>
 
