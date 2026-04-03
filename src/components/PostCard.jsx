@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal } from 'lucide-react'
+import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 
@@ -43,10 +43,7 @@ function MentionInput({ value, onChange, submitting }) {
     const match = val.slice(0, pos).match(/@(\w*)$/)
     if (match && match[1].length >= 1) {
       const { data } = await supabase
-        .from('users')
-        .select('id, username')
-        .ilike('username', `${match[1]}%`)
-        .limit(5)
+        .from('users').select('id, username').ilike('username', `${match[1]}%`).limit(5)
       setResults(data || [])
       setShowDrop(true)
     } else {
@@ -109,18 +106,17 @@ export default function PostCard({ post, onRefresh }) {
   const [showMenu, setShowMenu]           = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting]           = useState(false)
+  const [editing, setEditing]             = useState(false)
+  const [editContent, setEditContent]     = useState(post.content || '')
+  const [saving, setSaving]               = useState(false)
   const menuRef                           = useRef(null)
 
   const sport      = SPORT_MAP[post.sport] || {}
   const hasLiked   = post.likes?.some(l => l.user_id === user?.id)
   const likesCount = post.likes?.length || 0
   const commCount  = post.comments?.length || 0
-
-  // ✅ Fixed: use post.author (joined via author_id FK) instead of post.users
   const username   = post.author?.username || 'anon'
   const initial    = username.charAt(0).toUpperCase()
-
-  // ✅ Fixed: check against author_id
   const isOwner    = user?.id === post.author_id
 
   useEffect(() => {
@@ -144,17 +140,26 @@ export default function PostCard({ post, onRefresh }) {
   async function deletePost() {
     if (!isOwner) return
     setDeleting(true)
-    // Remove media from storage
     if (post.media_urls?.length > 0) {
-      const paths = post.media_urls
-        .map(url => url.split('/openplay-media/')[1])
-        .filter(Boolean)
+      const paths = post.media_urls.map(url => url.split('/openplay-media/')[1]).filter(Boolean)
       if (paths.length) await supabase.storage.from('openplay-media').remove(paths)
     }
-    // ✅ Fixed: delete using author_id instead of user_id
     await supabase.from('posts').delete().eq('id', post.id).eq('author_id', user.id)
     setDeleting(false)
     setConfirmDelete(false)
+    onRefresh?.()
+  }
+
+  async function saveEdit() {
+    if (!editContent.trim()) return
+    setSaving(true)
+    await supabase
+      .from('posts')
+      .update({ content: editContent.trim(), edited_at: new Date().toISOString() })
+      .eq('id', post.id)
+      .eq('author_id', user.id)
+    setSaving(false)
+    setEditing(false)
     onRefresh?.()
   }
 
@@ -190,7 +195,7 @@ export default function PostCard({ post, onRefresh }) {
             </p>
             <div className="flex items-center gap-2 text-ink-600 text-[9px] font-black uppercase tracking-widest">
               <span>{new Date(post.inserted_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</span>
-              {post.city && <><span>·</span><span>{post.city}</span></>}
+              {post.edited_at && <span className="text-white/20">· edited</span>}
             </div>
           </div>
         </Link>
@@ -213,6 +218,12 @@ export default function PostCard({ post, onRefresh }) {
             {showMenu && (
               <div className="absolute right-0 top-9 bg-ink-700 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[150px] animate-slide-up">
                 <button
+                  onClick={() => { setShowMenu(false); setEditing(true); setEditContent(post.content || '') }}
+                  className="w-full flex items-center gap-2.5 px-4 py-3 text-white text-xs font-black uppercase tracking-widest hover:bg-white/5 transition-colors border-b border-white/5"
+                >
+                  <Pencil size={13} /> Edit Post
+                </button>
+                <button
                   onClick={() => { setShowMenu(false); setConfirmDelete(true) }}
                   className="w-full flex items-center gap-2.5 px-4 py-3 text-spark text-xs font-black uppercase tracking-widest hover:bg-spark/10 transition-colors"
                 >
@@ -224,30 +235,43 @@ export default function PostCard({ post, onRefresh }) {
         )}
       </div>
 
-      {/* ── Delete confirmation ── */}
-      {confirmDelete && (
-        <div className="mb-4 p-4 bg-spark/10 border border-spark/20 rounded-2xl animate-slide-up">
-          <p className="text-sm text-white font-bold mb-1">Delete this post?</p>
-          <p className="text-xs text-ink-500 mb-4">This cannot be undone. Any uploaded media will also be removed.</p>
-          <div className="flex gap-2">
+      {/* ── Caption above photo ── */}
+      {editing ? (
+        <div className="mb-4 rounded-2xl border overflow-hidden"
+          style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)' }}>
+          <textarea
+            autoFocus
+            value={editContent}
+            onChange={e => setEditContent(e.target.value)}
+            className="w-full bg-transparent px-4 pt-3 pb-2 text-sm text-white outline-none resize-none leading-relaxed"
+            style={{ minHeight: '80px', caretColor: '#c8ff00' }}
+          />
+          <div className="flex items-center justify-end gap-2 px-3 pb-3">
             <button
-              onClick={() => setConfirmDelete(false)}
-              className="flex-1 py-2.5 glass rounded-xl text-ink-400 text-xs font-black uppercase tracking-widest border border-white/10"
+              onClick={() => setEditing(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase text-white/40 hover:bg-white/5"
             >
-              Cancel
+              <X size={12} /> Cancel
             </button>
             <button
-              onClick={deletePost}
-              disabled={deleting}
-              className="flex-1 py-2.5 bg-spark text-white rounded-xl text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-1.5"
+              onClick={saveEdit}
+              disabled={saving || !editContent.trim()}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-black uppercase disabled:opacity-50"
+              style={{ background: '#c8ff00', color: '#0a0a0f' }}
             >
-              {deleting ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
+              <Check size={12} /> {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
+      ) : (
+        post.content && (
+          <p className="text-ink-100 text-sm leading-relaxed mb-3">
+            <RichText text={post.content} />
+          </p>
+        )
       )}
 
-      {/* ── Media ── */}
+      {/* ── Media (below caption) ── */}
       {post.media_urls?.length > 0 && (
         <div className="mb-4 rounded-2xl overflow-hidden bg-ink-800">
           {post.media_types?.[0] === 'video' ? (
@@ -269,18 +293,34 @@ export default function PostCard({ post, onRefresh }) {
         </div>
       )}
 
-      {/* ── Body text with @mention rendering ── */}
-      {post.content && (
-        <p className="text-ink-100 text-sm leading-relaxed mb-3">
-          <RichText text={post.content} />
-        </p>
-      )}
-
-      {/* ── Location ── */}
+      {/* ── Location / Court tag ── */}
       {post.location_name && (
         <div className="flex items-center gap-1 text-ink-500 bg-white/5 px-2 py-1 rounded-lg border border-white/5 w-fit mb-3">
           <MapPin size={9} className="text-accent" />
           <span className="text-[9px] font-black uppercase tracking-tight">{post.location_name}</span>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {confirmDelete && (
+        <div className="mb-4 p-4 bg-spark/10 border border-spark/20 rounded-2xl animate-slide-up">
+          <p className="text-sm text-white font-bold mb-1">Delete this post?</p>
+          <p className="text-xs text-ink-500 mb-4">This cannot be undone. Any uploaded media will also be removed.</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 py-2.5 glass rounded-xl text-ink-400 text-xs font-black uppercase tracking-widest border border-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={deletePost}
+              disabled={deleting}
+              className="flex-1 py-2.5 bg-spark text-white rounded-xl text-xs font-black uppercase tracking-widest disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              {deleting ? 'Deleting…' : <><Trash2 size={12} /> Delete</>}
+            </button>
+          </div>
         </div>
       )}
 

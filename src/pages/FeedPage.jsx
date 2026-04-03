@@ -1,25 +1,91 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Loader2, RefreshCw, Image, Send, X, Hash } from 'lucide-react'
+import { Loader2, RefreshCw, Image, Send, X, Hash, MapPin, Navigation } from 'lucide-react'
 import PostCard from '../components/PostCard'
 
 const ALL_SPORTS = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
 
+// ── Mention-aware Textarea ──────────────────────────────────────────────────
+function MentionTextarea({ value, onChange, placeholder }) {
+  const [results, setResults]   = useState([])
+  const [showDrop, setShowDrop] = useState(false)
+  const [caretPos, setCaretPos] = useState(0)
+  const ref                     = useRef(null)
+
+  async function handleChange(e) {
+    const val = e.target.value
+    const pos = e.target.selectionStart
+    setCaretPos(pos)
+    onChange(val)
+    const match = val.slice(0, pos).match(/@(\w*)$/)
+    if (match && match[1].length >= 1) {
+      const { data } = await supabase
+        .from('users').select('id, username').ilike('username', `${match[1]}%`).limit(5)
+      setResults(data || [])
+      setShowDrop(true)
+    } else {
+      setShowDrop(false)
+      setResults([])
+    }
+  }
+
+  function pickUser(username) {
+    const before = value.slice(0, caretPos).replace(/@\w*$/, `@${username} `)
+    const after  = value.slice(caretPos)
+    onChange(before + after)
+    setShowDrop(false)
+    setResults([])
+    setTimeout(() => ref.current?.focus(), 0)
+  }
+
+  return (
+    <div className="relative">
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={e => { if (e.key === 'Escape') setShowDrop(false) }}
+        autoFocus
+        className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none text-sm leading-relaxed"
+        style={{ color: '#ffffff', caretColor: '#c8ff00', minHeight: '80px' }}
+        placeholder={placeholder}
+      />
+      {showDrop && results.length > 0 && (
+        <div className="absolute top-full mt-1 left-0 w-full bg-ink-700 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50">
+          {results.map(u => (
+            <button
+              key={u.id}
+              type="button"
+              onMouseDown={() => pickUser(u.username)}
+              className="w-full text-left px-4 py-2.5 text-xs font-bold text-accent hover:bg-white/5 border-b border-white/5 last:border-none"
+            >
+              @{u.username}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function FeedPage() {
-  const { user } = useAuth()
-  const [posts, setPosts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [sport, setSport] = useState('all')
+  const { user, profile } = useAuth()
+  const [posts, setPosts]             = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [sport, setSport]             = useState('all')
 
   // Composer
-  const [content, setContent] = useState('')
-  const [taggedSport, setTaggedSport] = useState(null) // optional, null = general
-  const [mediaFiles, setMediaFiles] = useState([])
-  const [mediaPreviews, setMediaPreviews] = useState([])
-  const [posting, setPosting] = useState(false)
-  const [composerOpen, setComposerOpen] = useState(false)
+  const [content, setContent]               = useState('')
+  const [taggedSport, setTaggedSport]       = useState(null)
+  const [mediaFiles, setMediaFiles]         = useState([])
+  const [mediaPreviews, setMediaPreviews]   = useState([])
+  const [posting, setPosting]               = useState(false)
+  const [composerOpen, setComposerOpen]     = useState(false)
   const [showSportPicker, setShowSportPicker] = useState(false)
+  const [locationName, setLocationName]     = useState('')
+  const [showLocationInput, setShowLocationInput] = useState(false)
+  const [gpsLoading, setGpsLoading]         = useState(false)
   const fileInputRef = useRef(null)
 
   const fetchFeed = useCallback(async () => {
@@ -48,7 +114,7 @@ export default function FeedPage() {
 
   useEffect(() => {
     const channel = supabase
-      .channel('posts-feed-v3')
+      .channel('posts-feed-v4')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchFeed)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, fetchFeed)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, fetchFeed)
@@ -77,6 +143,31 @@ export default function FeedPage() {
     setMediaPreviews([])
     setComposerOpen(false)
     setShowSportPicker(false)
+    setLocationName('')
+    setShowLocationInput(false)
+  }
+
+  async function detectLocation() {
+    if (!navigator.geolocation) return alert('Geolocation not supported')
+    setGpsLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`
+          )
+          const data = await res.json()
+          const place = data.address?.suburb || data.address?.city_district || data.address?.city || data.display_name
+          setLocationName(place || '')
+          setShowLocationInput(true)
+        } catch {
+          alert('Could not get location name')
+        } finally {
+          setGpsLoading(false)
+        }
+      },
+      () => { setGpsLoading(false); alert('Location access denied') }
+    )
   }
 
   async function uploadMedia() {
@@ -103,14 +194,15 @@ export default function FeedPage() {
         : { urls: [], types: [] }
 
       const { error } = await supabase.from('posts').insert([{
-        author_id:   user.id,
-        user_id:     user.id,
-        content:     content.trim(),
-        sport:       taggedSport || null,   // optional — can be null
+        author_id:     user.id,
+        user_id:       user.id,
+        content:       content.trim(),
+        sport:         taggedSport || null,
         media_urls,
         media_types,
-        created_at:  new Date().toISOString(),
-        inserted_at: new Date().toISOString(),
+        location_name: locationName.trim() || null,
+        created_at:    new Date().toISOString(),
+        inserted_at:   new Date().toISOString(),
       }])
 
       if (error) throw error
@@ -123,11 +215,11 @@ export default function FeedPage() {
     }
   }
 
-  const { profile } = useAuth()
-  const username = profile?.username || user?.email?.split('@')[0] || 'You'
-  const initial = username.charAt(0).toUpperCase()
+  // ── Composer display info ──────────────────────────────────────────────────
+  const username     = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial      = username.charAt(0).toUpperCase()
   const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
-  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  const avatarBg     = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
   const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
 
   return (
@@ -196,7 +288,6 @@ export default function FeedPage() {
                 </div>
                 <div>
                   <p className="text-sm font-black text-white">@{username}</p>
-                  {/* Tagged sport badge */}
                   {taggedSportObj ? (
                     <button
                       onClick={() => setTaggedSport(null)}
@@ -212,15 +303,12 @@ export default function FeedPage() {
                 </div>
               </div>
 
-              {/* Text area */}
+              {/* Caption textarea with @mention support */}
               <div className="px-4 py-2">
-                <textarea
-                  autoFocus
-                  className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none text-sm leading-relaxed"
-                  style={{ color: '#ffffff', caretColor: '#c8ff00', minHeight: '80px' }}
-                  placeholder="What's on your mind? Use #hashtags, @mentions..."
+                <MentionTextarea
                   value={content}
-                  onChange={e => setContent(e.target.value)}
+                  onChange={setContent}
+                  placeholder="What's on your mind? Use @mentions..."
                 />
               </div>
 
@@ -243,6 +331,23 @@ export default function FeedPage() {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Location input */}
+              {showLocationInput && (
+                <div className="mx-4 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border"
+                  style={{ background: 'rgba(200,255,0,0.05)', borderColor: 'rgba(200,255,0,0.2)' }}>
+                  <MapPin size={13} style={{ color: '#c8ff00' }} className="shrink-0" />
+                  <input
+                    value={locationName}
+                    onChange={e => setLocationName(e.target.value)}
+                    placeholder="Court or location name…"
+                    className="flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/30"
+                  />
+                  <button onClick={() => { setLocationName(''); setShowLocationInput(false) }}>
+                    <X size={12} style={{ color: 'rgba(255,255,255,0.3)' }} />
+                  </button>
                 </div>
               )}
 
@@ -296,6 +401,17 @@ export default function FeedPage() {
                     title="Tag a sport"
                   >
                     <Hash size={18} />
+                  </button>
+
+                  {/* Tag location */}
+                  <button
+                    onClick={() => showLocationInput ? setShowLocationInput(false) : detectLocation()}
+                    className="p-2 rounded-xl transition-colors hover:bg-white/5"
+                    style={{ color: locationName ? '#c8ff00' : 'rgba(255,255,255,0.45)' }}
+                    title="Tag court / location"
+                    disabled={gpsLoading}
+                  >
+                    {gpsLoading ? <Loader2 size={18} className="animate-spin" /> : <Navigation size={18} />}
                   </button>
 
                   {/* Cancel */}
