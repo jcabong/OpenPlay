@@ -3,7 +3,7 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
   Trophy, MapPin, Edit3, Loader2, X,
-  Heart, MessageCircle, Image, Calendar, Clock,
+  Heart, MessageCircle, Image, Calendar, Clock, Pencil, Trash2,
 } from 'lucide-react'
 import PostCard from '../components/PostCard'
 
@@ -104,39 +104,203 @@ function EditProfileModal({ profile, onClose, onSaved }) {
   )
 }
 
-// ─── Match log row ────────────────────────────────────────────
-function MatchRow({ game }) {
-  const sport = SPORTS.find(s => s.id === game.sport)
-  const isWin = game.result === 'win'
+// ─── Edit Match Modal ─────────────────────────────────────────
+function EditMatchModal({ game, onClose, onSaved }) {
+  const [saving, setSaving]   = useState(false)
+  const [form, setForm]       = useState({
+    score:         game.score         || '',
+    result:        game.result        || 'win',
+    opponent_name: game.opponent_name || '',
+    court_name:    game.court_name    || '',
+    intensity:     game.intensity     || 'Med',
+  })
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    const { error } = await supabase
+      .from('games')
+      .update({ ...form, edited_at: new Date().toISOString() })
+      .eq('id', game.id)
+    if (error) { alert('Error: ' + error.message); setSaving(false); return }
+    await onSaved()
+    onClose()
+  }
+
+  const inputCls = "w-full bg-white/5 border border-white/10 rounded-2xl py-3 px-4 text-sm text-white focus:border-accent/50 focus:outline-none"
+
   return (
-    <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
-      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
-        {sport?.emoji || '🏸'}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-ink-100 truncate">
-          {sport?.label}
-          {game.opponent_name ? <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span> : ''}
-        </p>
-        <div className="flex items-center gap-2 mt-0.5">
-          {game.court_name && (
-            <span className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5">
-              <MapPin size={8} />{game.court_name}
-            </span>
-          )}
-          {game.city && <span className="text-[9px] text-ink-600">· {game.city}</span>}
+    <div className="fixed inset-0 bg-black/80 z-[60] flex items-end">
+      <div className="w-full bg-ink-800 rounded-t-[2.5rem] border-t border-white/10 p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="font-display text-lg font-bold italic uppercase tracking-tighter text-white">Edit Match</h2>
+          <button onClick={onClose} className="p-2 glass rounded-xl border border-white/10 text-ink-400">
+            <X size={16} />
+          </button>
         </div>
-      </div>
-      <div className="text-right shrink-0">
-        <p className={`text-xs font-black uppercase ${isWin ? 'text-accent' : 'text-spark'}`}>
-          {isWin ? 'WIN' : 'LOSS'}
-        </p>
-        {game.score && <p className="text-[10px] text-ink-500 font-bold">{game.score}</p>}
-        <p className="text-[9px] text-ink-700 mt-0.5">
-          {new Date(game.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
-        </p>
+
+        <form onSubmit={save} className="space-y-3">
+          {/* Result */}
+          <div>
+            <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-2 block">Result</label>
+            <div className="grid grid-cols-2 gap-2">
+              {['win', 'loss'].map(r => (
+                <button key={r} type="button" onClick={() => setForm({ ...form, result: r })}
+                  className="py-3 rounded-2xl font-black uppercase text-sm border-2 transition-all"
+                  style={form.result === r
+                    ? r === 'win'
+                      ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)' }
+                      : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)' }
+                    : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
+                  }>
+                  {r.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Score */}
+          <div>
+            <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-1.5 block">Score</label>
+            <input className={inputCls} placeholder="e.g. 21-18, 21-15"
+              value={form.score} onChange={e => setForm({ ...form, score: e.target.value })} />
+          </div>
+
+          {/* Opponent */}
+          <div>
+            <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-1.5 block">Opponent</label>
+            <input className={inputCls} placeholder="Opponent name"
+              value={form.opponent_name} onChange={e => setForm({ ...form, opponent_name: e.target.value })} />
+          </div>
+
+          {/* Court */}
+          <div>
+            <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-1.5 block">Court / Venue</label>
+            <input className={inputCls} placeholder="Court or venue name"
+              value={form.court_name} onChange={e => setForm({ ...form, court_name: e.target.value })} />
+          </div>
+
+          {/* Intensity */}
+          <div>
+            <label className="text-[9px] font-black uppercase tracking-widest text-ink-500 mb-2 block">Intensity</label>
+            <div className="flex gap-2">
+              {[
+                { lvl: 'Low',  style: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' } },
+                { lvl: 'Med',  style: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' } },
+                { lvl: 'High', style: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' } },
+              ].map(({ lvl, style }) => (
+                <button key={lvl} type="button" onClick={() => setForm({ ...form, intensity: lvl })}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black uppercase border-2 transition-all"
+                  style={form.intensity === lvl ? style : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button type="submit" disabled={saving}
+            className="w-full bg-accent text-ink-900 font-display font-bold py-4 rounded-2xl text-base italic uppercase tracking-tight glow-accent disabled:opacity-50 mt-2">
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </form>
       </div>
     </div>
+  )
+}
+
+// ─── Match log row ────────────────────────────────────────────
+function MatchRow({ game, onRefresh }) {
+  const sport                         = SPORTS.find(s => s.id === game.sport)
+  const isWin                         = game.result === 'win'
+  const [showEdit, setShowEdit]       = useState(false)
+  const [confirmDel, setConfirmDel]   = useState(false)
+  const [deleting, setDeleting]       = useState(false)
+
+  async function deleteMatch() {
+    setDeleting(true)
+    await supabase.from('games').delete().eq('id', game.id)
+    setDeleting(false)
+    setConfirmDel(false)
+    onRefresh?.()
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
+        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
+          {sport?.emoji || '🏸'}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-ink-100 truncate">
+            {sport?.label}
+            {game.opponent_name ? <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span> : ''}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {game.court_name && (
+              <span className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5">
+                <MapPin size={8} />{game.court_name}
+              </span>
+            )}
+            {game.city && <span className="text-[9px] text-ink-600">· {game.city}</span>}
+            {game.edited_at && <span className="text-[9px] text-white/20">· edited</span>}
+          </div>
+        </div>
+
+        <div className="text-right shrink-0">
+          <p className={`text-xs font-black uppercase ${isWin ? 'text-accent' : 'text-spark'}`}>
+            {isWin ? 'WIN' : 'LOSS'}
+          </p>
+          {game.score && <p className="text-[10px] text-ink-500 font-bold">{game.score}</p>}
+          <p className="text-[9px] text-ink-700 mt-0.5">
+            {new Date(game.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+          </p>
+        </div>
+
+        {/* Edit / Delete actions */}
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          <button onClick={() => setShowEdit(true)}
+            className="p-1.5 rounded-xl hover:bg-white/5 transition-all"
+            style={{ color: 'rgba(255,255,255,0.35)' }}>
+            <Pencil size={13} />
+          </button>
+          <button onClick={() => setConfirmDel(true)}
+            className="p-1.5 rounded-xl hover:bg-red-500/10 transition-all"
+            style={{ color: 'rgba(255,77,77,0.5)' }}>
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Delete confirmation */}
+      {confirmDel && (
+        <div className="mx-4 mb-2 p-4 rounded-2xl border" style={{ background: 'rgba(255,77,77,0.08)', borderColor: 'rgba(255,77,77,0.2)' }}>
+          <p className="text-sm text-white font-bold mb-1">Delete this match?</p>
+          <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>This cannot be undone.</p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmDel(false)}
+              className="flex-1 py-2 rounded-xl text-xs font-black uppercase border border-white/10"
+              style={{ color: 'rgba(255,255,255,0.5)' }}>
+              Cancel
+            </button>
+            <button onClick={deleteMatch} disabled={deleting}
+              className="flex-1 py-2 rounded-xl text-xs font-black uppercase text-white disabled:opacity-50"
+              style={{ background: '#ff4d4d' }}>
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {showEdit && (
+        <EditMatchModal
+          game={game}
+          onClose={() => setShowEdit(false)}
+          onSaved={onRefresh}
+        />
+      )}
+    </>
   )
 }
 
@@ -381,7 +545,7 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-              {games.map(game => <MatchRow key={game.id} game={game} />)}
+              {games.map(game => <MatchRow key={game.id} game={game} onRefresh={fetchData} />)}
             </div>
           )}
         </div>
