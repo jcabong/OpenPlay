@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { notifyMentions } from '../hooks/useNotifications'
 import { Loader2, RefreshCw, Image, Send, X, Hash, MapPin, Navigation } from 'lucide-react'
 import PostCard from '../components/PostCard'
 
@@ -193,7 +194,7 @@ export default function FeedPage() {
         ? await uploadMedia()
         : { urls: [], types: [] }
 
-      const { error } = await supabase.from('posts').insert([{
+      const { data: newPost, error } = await supabase.from('posts').insert([{
         author_id:     user.id,
         user_id:       user.id,
         content:       content.trim(),
@@ -203,9 +204,19 @@ export default function FeedPage() {
         location_name: locationName.trim() || null,
         created_at:    new Date().toISOString(),
         inserted_at:   new Date().toISOString(),
-      }])
+      }]).select().single()
 
       if (error) throw error
+
+      // Notify any @mentions in the post body
+      if (content.includes('@') && newPost) {
+        await notifyMentions({
+          text:     content.trim(),
+          fromUser: { id: user.id, username },
+          postId:   newPost.id,
+        })
+      }
+
       resetComposer()
       fetchFeed()
     } catch (err) {
