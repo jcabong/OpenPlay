@@ -95,9 +95,9 @@ export default function FeedPage() {
       .from('posts')
       .select(`
         *,
-        author:users!posts_author_id_fkey (id, username, avatar_url),
+        author:users!posts_author_id_fkey (id, username, display_name, avatar_url),
         likes (user_id),
-        comments (*, users(username), comment_likes(user_id))
+        comments (*, users(id, username, display_name), comment_likes(user_id), comment_replies(*, users(id, username, display_name)))
       `)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })

@@ -663,7 +663,7 @@ function EventCard({ event, allRegistrations, userRegistrations, user, onRegiste
         {/* Host username */}
         {event.host?.username && (
           <p className="text-[10px] font-black mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
-            Hosted by <span style={{ color: '#c8ff00' }}>@{event.host.username}</span>
+            Hosted by <span style={{ color: '#c8ff00' }}>{event.host.display_name || event.host.username}</span>
           </p>
         )}
 
@@ -709,7 +709,7 @@ function EventCard({ event, allRegistrations, userRegistrations, user, onRegiste
                 .filter(r => r.event_id === event.id)
                 .slice(0, 5)
                 .map((r, i) => {
-                  const uname = r.users?.username || '?'
+                  const uname = r.users?.display_name || r.users?.username || '?'
                   const colors = ['#c8ff00','#f59e0b','#60a5fa','#a78bfa','#f472b6']
                   return (
                     <div key={i}
@@ -786,11 +786,11 @@ export default function EventsPage() {
     setLoading(true)
     const [{ data: evts }, { data: aRegs }, { data: uRegs }] = await Promise.all([
       // Join host user info for username display
-      supabase.from('events').select('*, host:users!events_host_id_fkey(id, username)')
+      supabase.from('events').select('*, host:users!events_host_id_fkey(id, username, display_name)')
         .eq('is_published', true)
         .gte('date_start', new Date().toISOString())
         .order('date_start', { ascending: true }),
-      supabase.from('event_registrations').select('event_id, user_id, users(id, username)'),
+      supabase.from('event_registrations').select('event_id, user_id, users(id, username, display_name)'),
       user
         ? supabase.from('event_registrations').select('*').eq('user_id', user.id)
         : Promise.resolve({ data: [] }),
