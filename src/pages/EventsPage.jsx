@@ -39,13 +39,22 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
     if (q.length < 2) { setSuggestions([]); return }
     setSearching(true)
     try {
-      const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=ph`)
+      // No countrycodes restriction — searches globally so local courts/venues are found
+      const res  = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=8&accept-language=en`
+      )
       const data = await res.json()
-      setSuggestions(data.map(r => ({
-        display: r.display_name.split(',').slice(0, 2).join(',').trim(),
-        name:    r.address?.amenity || r.address?.leisure || r.address?.building || r.name || '',
-        city:    r.address?.city || r.address?.town || r.address?.municipality || r.address?.county || '',
-      })))
+      setSuggestions(data.map(r => {
+        const nameParts = r.display_name.split(',')
+        return {
+          display: nameParts.slice(0, 3).join(',').trim(),
+          full:    r.display_name,
+          name:    r.address?.amenity || r.address?.leisure || r.address?.building ||
+                   r.address?.sports_centre || r.address?.stadium || r.name || nameParts[0].trim(),
+          city:    r.address?.city || r.address?.town || r.address?.municipality ||
+                   r.address?.county || r.address?.state || '',
+        }
+      }))
     } catch { setSuggestions([]) } finally { setSearching(false) }
   }
 
@@ -67,10 +76,12 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
     setGpsLoading(true)
     navigator.geolocation.getCurrentPosition(async ({ coords }) => {
       try {
-        const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`)
+        const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json&accept-language=en`)
         const data = await res.json()
-        const name = data.address?.amenity || data.address?.leisure || data.address?.building || ''
-        const c    = data.address?.city || data.address?.town || data.address?.municipality || ''
+        const name = data.address?.amenity || data.address?.leisure || data.address?.building ||
+                     data.address?.sports_centre || data.address?.stadium || ''
+        const c    = data.address?.city || data.address?.town || data.address?.municipality ||
+                     data.address?.county || ''
         const disp = name ? `${name}, ${c}` : c
         setQuery(disp); onVenueChange(name || disp); onCityChange(c)
       } catch { alert('Could not get location') } finally { setGpsLoading(false) }
@@ -125,34 +136,57 @@ function DateTimePicker({ label, value, onChange }) {
     onChange({ year: y, month: mo, day: d, hour: h, minute: mi, ampm: ap, iso: buildISO(y, mo, d, h, mi, ap) })
   }
 
-  const sel = "rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none flex-1"
+  const sel = "w-full rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none"
   const ss  = { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
 
   return (
     <div>
       <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
-      <div className="flex gap-2 mb-2">
-        <select className={sel} style={ss} value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
-          {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
-        </select>
-        <select className={sel} style={ss} value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
-          {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
-        </select>
-        <select className={sel} style={ss} value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
-          {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
-        </select>
-      </div>
-      <div className="flex gap-2">
-        <select className={sel} style={ss} value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
-          {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
-        </select>
-        <select className={sel} style={ss} value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
-          {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
-        </select>
-        <select className={sel} style={{ ...ss, fontWeight: 'bold' }} value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
-          <option value="AM" className="bg-ink-900">AM</option>
-          <option value="PM" className="bg-ink-900">PM</option>
-        </select>
+      <div className="grid grid-cols-2 gap-3">
+
+        {/* DATE column */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <p className="text-[9px] font-black uppercase tracking-widest px-3 pt-2.5 pb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Date</p>
+          <div className="px-2 pb-2 space-y-1.5">
+            <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+              value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
+              {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
+            </select>
+            <div className="flex gap-1.5">
+              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
+                {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
+              </select>
+              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
+                {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* TIME column */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <p className="text-[9px] font-black uppercase tracking-widest px-3 pt-2.5 pb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Time</p>
+          <div className="px-2 pb-2 space-y-1.5">
+            <div className="flex gap-1.5">
+              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
+                {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
+              </select>
+              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
+                {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
+              </select>
+            </div>
+            <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', fontWeight: 'bold', color: '#c8ff00' }}
+              value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
+              <option value="AM" className="bg-ink-900" style={{ color: '#fff' }}>AM</option>
+              <option value="PM" className="bg-ink-900" style={{ color: '#fff' }}>PM</option>
+            </select>
+          </div>
+        </div>
+
       </div>
     </div>
   )
