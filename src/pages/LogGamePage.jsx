@@ -296,12 +296,9 @@ export default function LogGamePage() {
   const [taggedUser, setTaggedUser]     = useState(null)
   const [isSearching, setIsSearching]   = useState(false)
 
-  // ✅ FIXED: Search opponents from 'profiles' table with correct columns
   async function searchOpponents(query) {
     if (!query || query.length < 2) return
     setIsSearching(true)
-    
-    console.log('🔍 Searching for opponent:', query)
     
     const { data, error } = await supabase
       .from('profiles')
@@ -313,7 +310,6 @@ export default function LogGamePage() {
     if (error) {
       console.error('Search error:', error)
     } else {
-      console.log('✅ Found opponents:', data)
       setSearchResults(data || [])
     }
     setIsSearching(false)
@@ -401,7 +397,7 @@ export default function LogGamePage() {
           result:             'loss',
           score:              formData.score,
           intensity:          formData.intensity,
-          opponent_name:      profile?.username || user.email?.split('@')[0] || 'opponent',
+          opponent_name:      profile?.username || 'opponent',
           tagged_opponent_id: user.id,
           created_at:         new Date().toISOString(),
         }])
@@ -428,7 +424,7 @@ export default function LogGamePage() {
 
       if (postError) console.warn('Feed post failed:', postError.message)
 
-      const myUsername = profile?.username || user.email?.split('@')[0] || 'user'
+      const myUsername = profile?.username || 'user'
 
       if (taggedUser) {
         await sendNotification({
@@ -527,7 +523,6 @@ export default function LogGamePage() {
                 </button>
               )}
             </div>
-            {/* ✅ Opponent dropdown with full_name and location */}
             {searchResults.length > 0 && !taggedUser && (
               <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
                 {searchResults.map(u => (
@@ -539,7 +534,6 @@ export default function LogGamePage() {
                       setTaggedUser(u)
                       setSearchQuery('')
                       setSearchResults([])
-                      console.log('✅ Tagged opponent:', u.username)
                     }}
                     className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
                   >
