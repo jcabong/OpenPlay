@@ -3,7 +3,7 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
   Trophy, MapPin, Edit3, Loader2, X,
-  Heart, MessageCircle, Image, Calendar,
+  Heart, MessageCircle, Image, Calendar, Clock,
 } from 'lucide-react'
 import PostCard from '../components/PostCard'
 
@@ -140,34 +140,78 @@ function MatchRow({ game }) {
   )
 }
 
+// ─── Event mini card ─────────────────────────────────────────
+function EventMiniCard({ event, badge, badgeColor }) {
+  const typeBar = { tournament: '#FF4D00', open_play: '#c8ff00', clinic: '#60A5FA' }[event.event_type] || '#fff'
+  const dateStr = event.date_start
+    ? new Date(event.date_start).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—'
+  const timeStr = event.date_start
+    ? new Date(event.date_start).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true })
+    : ''
+  const isPast = event.date_start && new Date(event.date_start) < new Date()
+
+  return (
+    <div className="rounded-[1.75rem] border border-white/8 overflow-hidden"
+      style={{ background: 'rgba(255,255,255,0.04)', opacity: isPast ? 0.6 : 1 }}>
+      <div className="h-1.5 w-full" style={{ background: typeBar }} />
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="font-black text-sm text-white leading-tight flex-1">{event.title}</h3>
+          <span className="text-[9px] font-black uppercase px-2 py-1 rounded-lg shrink-0"
+            style={{ background: `${badgeColor}18`, color: badgeColor }}>
+            {isPast ? 'Past' : badge}
+          </span>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            <Calendar size={10} />
+            {dateStr}{timeStr && ` · ${timeStr}`}
+          </div>
+          {(event.venue || event.city) && (
+            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              <MapPin size={10} />
+              {event.venue}{event.city ? ` · ${event.city}` : ''}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+            <Trophy size={10} />
+            {event.event_type?.replace('_', ' ')} · {event.max_slots} slots
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────
-const TABS = ['Posts', 'Match Logs']
+const TABS = ['Posts', 'Match Logs', 'Hosting', 'Going']
 
 export default function ProfilePage() {
   const { user, profile, signOut, refreshProfile } = useAuth()
-  const [games, setGames]       = useState([])
-  const [posts, setPosts]       = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [activeTab, setActiveTab] = useState('Posts')
-  const [showEdit, setShowEdit] = useState(false)
+  const [games, setGames]             = useState([])
+  const [posts, setPosts]             = useState([])
+  const [hostingEvents, setHosting]   = useState([])
+  const [goingEvents, setGoing]       = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [activeTab, setActiveTab]     = useState('Posts')
+  const [showEdit, setShowEdit]       = useState(false)
 
   const fetchData = useCallback(async () => {
     if (!user) return
     setLoading(true)
-    const [{ data: g }, { data: p }] = await Promise.all([
-      supabase
-        .from('games')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('posts')
-        .select('*, users(id,username), likes(user_id), comments(*, users(username))')
-        .eq('user_id', user.id)
-        .order('inserted_at', { ascending: false }),
+    const [{ data: g }, { data: p }, { data: h }, { data: regs }] = await Promise.all([
+      supabase.from('games').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('posts').select('*, author:users!posts_author_id_fkey(id,username), likes(user_id), comments(*, users(username))').eq('author_id', user.id).order('inserted_at', { ascending: false }),
+      // Events I'm hosting
+      supabase.from('events').select('*').eq('host_id', user.id).order('date_start', { ascending: true }),
+      // Events I registered for
+      supabase.from('event_registrations').select('event_id, events(*)').eq('user_id', user.id),
     ])
     setGames(g || [])
     setPosts(p || [])
+    setHosting(h || [])
+    setGoing((regs || []).map(r => r.events).filter(Boolean).sort((a, b) => new Date(a.date_start) - new Date(b.date_start)))
     setLoading(false)
   }, [user])
 
@@ -301,8 +345,10 @@ export default function ProfilePage() {
                 activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-500 hover:text-ink-200'
               }`}
             >
-              {tab === 'Posts'       && <Image size={12} />}
-              {tab === 'Match Logs'  && <Calendar size={12} />}
+              {tab === 'Posts'      && <Image size={12} />}
+              {tab === 'Match Logs' && <Calendar size={12} />}
+              {tab === 'Hosting'    && <Trophy size={12} />}
+              {tab === 'Going'      && <Clock size={12} />}
               {tab}
             </button>
           ))}
@@ -337,6 +383,34 @@ export default function ProfilePage() {
             <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
               {games.map(game => <MatchRow key={game.id} game={game} />)}
             </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'Hosting' && (
+        <div className="px-4 space-y-3">
+          {hostingEvents.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-3">🏆</p>
+              <p className="text-ink-500 font-black uppercase text-xs tracking-widest">No events hosted yet</p>
+              <p className="text-ink-700 text-xs mt-1">Tap Host on the Events page to create one</p>
+            </div>
+          ) : (
+            hostingEvents.map(ev => <EventMiniCard key={ev.id} event={ev} badge="Hosting" badgeColor="#c8ff00" />)
+          )}
+        </div>
+      )}
+
+      {activeTab === 'Going' && (
+        <div className="px-4 space-y-3">
+          {goingEvents.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-3">📅</p>
+              <p className="text-ink-500 font-black uppercase text-xs tracking-widest">Not registered for any events</p>
+              <p className="text-ink-700 text-xs mt-1">Browse events and register to see them here</p>
+            </div>
+          ) : (
+            goingEvents.map(ev => <EventMiniCard key={ev.id} event={ev} badge="Going" badgeColor="#60a5fa" />)
           )}
         </div>
       )}
