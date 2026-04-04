@@ -301,17 +301,16 @@ export default function Layout({ children }) {
           </div>
         </nav>
       </div>
-    </div>
 
-    {/* Notifications Panel — shared across mobile + desktop */}
-    {showNotifications && (
-      <NotificationsPanel
-        notifications={notifications}
-        onMarkAllRead={markAllRead}
-        onMarkOneRead={markOneRead}
-        onClose={() => setShowNotifications(false)}
-      />
-    )}
-  </div>
+      {/* Notifications Panel — shared across mobile + desktop */}
+      {showNotifications && (
+        <NotificationsPanel
+          notifications={notifications}
+          onMarkAllRead={markAllRead}
+          onMarkOneRead={markOneRead}
+          onClose={() => setShowNotifications(false)}
+        />
+      )}
+    </div>
   )
 }
