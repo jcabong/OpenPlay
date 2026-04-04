@@ -382,8 +382,8 @@ export default function LogGamePage() {
         await sendNotification({
           userId: taggedUser.id,
           type:   'tagged_match',
-          title:  `@${myUsername} tagged you in a match`,
-          body:   `${sport?.emoji} ${sport?.label} · ${formData.result.toUpperCase()} ${formData.score ? `(${formData.score})` : ''}`,
+          title:  `@${myUsername} recorded a match against you`,
+          body:   `${sport?.emoji} ${sport?.label} · A LOSS has been recorded on your profile. Score: ${formData.score || '—'}`,
           data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
         })
       }
