@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
+import { notifyMentions, sendNotification } from '../hooks/useNotifications'
 import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
 
 // ── Smart location search (Google Places Autocomplete) ──────────────
@@ -245,7 +246,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
 }
 
 export default function LogGamePage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading]         = useState(false)
   const [mediaFiles, setMediaFiles]   = useState([])
@@ -347,7 +348,7 @@ export default function LogGamePage() {
       const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
       const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
 
-      const { error: postError } = await supabase.from('posts').insert([{
+      const { data: newPost, error: postError } = await supabase.from('posts').insert([{
         author_id:     user.id,
         user_id:       user.id,
         content:       formData.content || autoContent,
@@ -359,9 +360,33 @@ export default function LogGamePage() {
         media_types,
         game_id:       game.id,
         inserted_at:   new Date().toISOString(),
-      }])
+      }]).select().single()
 
       if (postError) console.warn('Feed post failed:', postError.message)
+
+      const myUsername = profile?.username || user.email?.split('@')[0] || 'user'
+
+      // Notify tagged opponent that they were tagged in a match
+      if (taggedUser) {
+        await sendNotification({
+          userId: taggedUser.id,
+          type:   'tagged_match',
+          title:  `@${myUsername} tagged you in a match`,
+          body:   `${sport?.emoji} ${sport?.label} · ${formData.result.toUpperCase()} ${formData.score ? `(${formData.score})` : ''}`,
+          data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
+        })
+      }
+
+      // Notify any @mentions in custom caption
+      const caption = formData.content.trim()
+      if (caption.includes('@') && newPost) {
+        await notifyMentions({
+          text:     caption,
+          fromUser: { id: user.id, username: myUsername },
+          postId:   newPost.id,
+        })
+      }
+
       navigate('/')
     } catch (err) {
       alert('Error saving match: ' + err.message)

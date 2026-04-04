@@ -186,6 +186,13 @@ export default function FeedPage() {
     return { urls, types }
   }
 
+  // ── Composer display info ──────────────────────────────────────────────────
+  const username     = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial      = username.charAt(0).toUpperCase()
+  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg     = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
+
   async function handlePost() {
     if (!user || (!content.trim() && mediaFiles.length === 0)) return
     setPosting(true)
@@ -225,13 +232,6 @@ export default function FeedPage() {
       setPosting(false)
     }
   }
-
-  // ── Composer display info ──────────────────────────────────────────────────
-  const username     = profile?.username || user?.email?.split('@')[0] || 'You'
-  const initial      = username.charAt(0).toUpperCase()
-  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
-  const avatarBg     = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
-  const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
 
   return (
     <div className="min-h-screen">
