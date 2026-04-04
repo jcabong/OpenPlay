@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell } from 'lucide-react'
+import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield } from 'lucide-react'  // ✅ Added Shield
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useNotifications } from '../hooks/useNotifications'
@@ -29,6 +29,9 @@ export default function Layout({ children }) {
   const initial = username.charAt(0).toUpperCase()
   const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
   const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  
+  // Check if user is admin
+  const isAdmin = profile?.role === 'admin'
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
@@ -79,6 +82,31 @@ export default function Layout({ children }) {
                 )}
               </NavLink>
             ))}
+            
+            {/* ✅ Admin Link - Only shows for admins */}
+            {isAdmin && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-200 group ${
+                    isActive
+                      ? 'text-black'
+                      : 'text-white/50 hover:text-white hover:bg-white/5'
+                  }`
+                }
+                style={({ isActive }) => isActive
+                  ? { background: '#c8ff00', boxShadow: '0 0 20px rgba(200,255,0,0.3)' }
+                  : {}
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Shield size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+                    <span>Admin</span>
+                  </>
+                )}
+              </NavLink>
+            )}
           </nav>
 
           {/* Bottom: notifications + user + sign out */}
@@ -243,6 +271,30 @@ export default function Layout({ children }) {
                     )}
                   </NavLink>
                 ))}
+                
+                {/* ✅ Admin Link - Only shows for admins on mobile */}
+                {isAdmin && (
+                  <NavLink
+                    to="/admin"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                        isActive ? 'text-black' : 'text-white/50'
+                      }`
+                    }
+                    style={({ isActive }) => isActive
+                      ? { background: '#c8ff00' }
+                      : {}
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <Shield size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+                        Admin
+                      </>
+                    )}
+                  </NavLink>
+                )}
               </nav>
 
               <div className="px-3 py-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
