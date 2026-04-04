@@ -120,6 +120,7 @@ export default function LeaderboardPage() {
       .from('games')
       .select('court_name, city, province, user:users!user_id(city)')
       .eq('sport', sport)
+      .eq('is_deleted', false)
 
     if (!data) return
 
@@ -145,8 +146,10 @@ export default function LeaderboardPage() {
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('user_id, result, city, province, court_name, user:users!user_id(id, username, city)')
+        .select('user_id, result, city, province, court_name, tagged_opponent_id, user:users!user_id(id, username, city)')
         .eq('sport', sport)
+        .eq('is_deleted', false)   // exclude soft-deleted
+        .not('tagged_opponent_id', 'is', null) // only verified matches (tagged opponent)
 
       if (error) {
         console.error('fetchBoard error:', error.message)

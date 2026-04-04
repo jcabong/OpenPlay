@@ -216,9 +216,14 @@ function MatchRow({ game, onRefresh }) {
   const [confirmDel, setConfirmDel]   = useState(false)
   const [deleting, setDeleting]       = useState(false)
 
+  // ── 24h lock ──────────────────────────────────────────────────
+  const ageHours = (Date.now() - new Date(game.created_at).getTime()) / 3600000
+  const isLocked = ageHours > 24
+
   async function deleteMatch() {
     setDeleting(true)
-    await supabase.from('games').delete().eq('id', game.id)
+    // Soft delete — keeps record for rankings integrity
+    await supabase.from('games').update({ is_deleted: true }).eq('id', game.id)
     setDeleting(false)
     setConfirmDel(false)
     onRefresh?.()
@@ -257,26 +262,37 @@ function MatchRow({ game, onRefresh }) {
           </p>
         </div>
 
-        {/* Edit / Delete actions */}
+        {/* Edit / Delete actions — locked after 24h */}
         <div className="flex items-center gap-1 shrink-0 ml-1">
-          <button onClick={() => setShowEdit(true)}
-            className="p-1.5 rounded-xl hover:bg-white/5 transition-all"
-            style={{ color: 'rgba(255,255,255,0.35)' }}>
-            <Pencil size={13} />
-          </button>
-          <button onClick={() => setConfirmDel(true)}
-            className="p-1.5 rounded-xl hover:bg-red-500/10 transition-all"
-            style={{ color: 'rgba(255,77,77,0.5)' }}>
-            <Trash2 size={13} />
-          </button>
+          {isLocked ? (
+            <div className="p-1.5 rounded-xl" title="Locked after 24 hours"
+              style={{ color: 'rgba(255,255,255,0.15)' }}>
+              🔒
+            </div>
+          ) : (
+            <>
+              <button onClick={() => setShowEdit(true)}
+                className="p-1.5 rounded-xl hover:bg-white/5 transition-all"
+                style={{ color: 'rgba(255,255,255,0.35)' }}>
+                <Pencil size={13} />
+              </button>
+              <button onClick={() => setConfirmDel(true)}
+                className="p-1.5 rounded-xl hover:bg-red-500/10 transition-all"
+                style={{ color: 'rgba(255,77,77,0.5)' }}>
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Delete confirmation */}
       {confirmDel && (
         <div className="mx-4 mb-2 p-4 rounded-2xl border" style={{ background: 'rgba(255,77,77,0.08)', borderColor: 'rgba(255,77,77,0.2)' }}>
-          <p className="text-sm text-white font-bold mb-1">Delete this match?</p>
-          <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>This cannot be undone.</p>
+          <p className="text-sm text-white font-bold mb-1">Hide this match?</p>
+          <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            The record will be hidden from your profile but kept for rankings integrity.
+          </p>
           <div className="flex gap-2">
             <button onClick={() => setConfirmDel(false)}
               className="flex-1 py-2 rounded-xl text-xs font-black uppercase border border-white/10"
@@ -286,7 +302,7 @@ function MatchRow({ game, onRefresh }) {
             <button onClick={deleteMatch} disabled={deleting}
               className="flex-1 py-2 rounded-xl text-xs font-black uppercase text-white disabled:opacity-50"
               style={{ background: '#ff4d4d' }}>
-              {deleting ? 'Deleting…' : 'Delete'}
+              {deleting ? 'Hiding…' : 'Hide Match'}
             </button>
           </div>
         </div>
@@ -365,7 +381,7 @@ export default function ProfilePage() {
     if (!user) return
     setLoading(true)
     const [{ data: g }, { data: p }, { data: h }, { data: regs }] = await Promise.all([
-      supabase.from('games').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('games').select('*').eq('user_id', user.id).eq('is_deleted', false).order('created_at', { ascending: false }),
       supabase.from('posts').select('*, author:users!posts_author_id_fkey(id,username), likes(user_id), comments(*, users(username))').eq('author_id', user.id).order('inserted_at', { ascending: false }),
       // Events I'm hosting
       supabase.from('events').select('*').eq('host_id', user.id).order('date_start', { ascending: true }),

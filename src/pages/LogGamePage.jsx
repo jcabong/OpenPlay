@@ -321,6 +321,13 @@ export default function LogGamePage() {
   async function handleSubmit(e) {
     e.preventDefault()
     if (loading || !user) return
+
+    // ── Integrity Rule: wins require a tagged opponent ──────────────
+    if (formData.result === 'win' && !taggedUser) {
+      alert('⚠️ To record a WIN, you must tag your opponent. This keeps the rankings fair.')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -343,6 +350,23 @@ export default function LogGamePage() {
       }]).select().single()
 
       if (gameError) throw gameError
+
+      // ── Option A: Auto-create loss record for tagged opponent ──────
+      if (taggedUser && formData.result === 'win') {
+        await supabase.from('games').insert([{
+          user_id:            taggedUser.id,
+          sport:              formData.sport,
+          court_name:         formData.court_name,
+          city:               formData.city,
+          province:           formData.province,
+          result:             'loss',
+          score:              formData.score,
+          intensity:          formData.intensity,
+          opponent_name:      user.user_metadata?.full_name || user.email?.split('@')[0] || 'opponent',
+          tagged_opponent_id: user.id,
+          created_at:         new Date().toISOString(),
+        }])
+      }
 
       const sport    = SPORTS.find(s => s.id === formData.sport)
       const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
@@ -532,6 +556,16 @@ export default function LogGamePage() {
               </button>
             ))}
           </div>
+          {/* Hint: wins require tagged opponent */}
+          {formData.result === 'win' && !taggedUser && (
+            <div className="mt-3 px-4 py-2.5 rounded-2xl flex items-center gap-2"
+              style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
+              <span className="text-sm">⚠️</span>
+              <p className="text-[10px] font-bold" style={{ color: 'rgba(200,255,0,0.8)' }}>
+                Wins require a tagged opponent to count in rankings
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Intensity */}
