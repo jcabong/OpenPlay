@@ -83,7 +83,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
 
-  // ✅ FIXED: Better city/province extraction
   async function pickSuggestion(s) {
     setQuery(s.name)
     onCourtChange(s.name)
@@ -100,7 +99,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       let cityVal = ''
       let provinceVal = ''
       
-      // Try to find city/locality
       const locality = comps.find(c => 
         c.types.includes('locality') || 
         c.types.includes('administrative_area_level_3') ||
@@ -108,7 +106,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
         c.types.includes('sublocality')
       )
       
-      // Try to find province/region
       const provinceComp = comps.find(c => 
         c.types.includes('administrative_area_level_2') ||
         c.types.includes('administrative_area_level_1')
@@ -117,14 +114,12 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       cityVal = locality?.longText || locality?.long_name || ''
       provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
       
-      // Fallback: parse from secondary text
       if (!cityVal && s.secondary) {
         const secondaryParts = s.secondary.split(',').map(p => p.trim())
         cityVal = secondaryParts[0] || ''
         provinceVal = secondaryParts[1] || provinceVal
       }
       
-      // Fallback: parse from formatted address
       if (!cityVal && place.formattedAddress) {
         const parts = place.formattedAddress.split(',').map(p => p.trim())
         if (parts.length >= 2) {
@@ -134,8 +129,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       
       onCityChange(cityVal)
       onProvinceChange(provinceVal)
-      
-      console.log('📍 Location parsed:', { court: s.name, city: cityVal, province: provinceVal })
       
     } catch (err) {
       console.error('Place details error:', err)
@@ -157,7 +150,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     setSuggestions([])
   }
 
-  // ✅ FIXED: Better GPS location detection
   async function detectGPS() {
     if (!navigator.geolocation) return alert('Geolocation not supported')
     setGpsLoading(true)
@@ -194,8 +186,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           onCourtChange(name)
           onCityChange(cityVal)
           onProvinceChange(provinceVal)
-          
-          console.log('📍 GPS detected:', { name, city: cityVal, province: provinceVal })
           
         } catch {
           alert('Could not get location')
@@ -306,7 +296,7 @@ export default function LogGamePage() {
   const [taggedUser, setTaggedUser]     = useState(null)
   const [isSearching, setIsSearching]   = useState(false)
 
-  // ✅ FIXED: Search opponents from 'users' table (not 'profiles')
+  // ✅ FIXED: Search opponents from 'profiles' table with correct columns
   async function searchOpponents(query) {
     if (!query || query.length < 2) return
     setIsSearching(true)
@@ -314,8 +304,8 @@ export default function LogGamePage() {
     console.log('🔍 Searching for opponent:', query)
     
     const { data, error } = await supabase
-      .from('users')  // ← Changed from 'profiles' to 'users'
-      .select('id, username, display_name, city, region')
+      .from('profiles')
+      .select('id, username, full_name, city, province')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
       .limit(5)
@@ -329,7 +319,6 @@ export default function LogGamePage() {
     setIsSearching(false)
   }
 
-  // ✅ FIXED: useEffect with correct dependencies
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchQuery.length >= 2 && !taggedUser) {
@@ -538,7 +527,7 @@ export default function LogGamePage() {
                 </button>
               )}
             </div>
-            {/* ✅ FIXED: Opponent dropdown with better display */}
+            {/* ✅ Opponent dropdown with full_name and location */}
             {searchResults.length > 0 && !taggedUser && (
               <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
                 {searchResults.map(u => (
@@ -556,15 +545,15 @@ export default function LogGamePage() {
                   >
                     <div>
                       <span className="font-bold text-white">@{u.username}</span>
-                      {u.display_name && (
+                      {u.full_name && (
                         <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
-                          ({u.display_name})
+                          ({u.full_name})
                         </span>
                       )}
                     </div>
-                    {(u.city || u.region) && (
+                    {(u.city || u.province) && (
                       <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        📍 {u.city || u.region}
+                        📍 {u.city || u.province}
                       </span>
                     )}
                   </button>
