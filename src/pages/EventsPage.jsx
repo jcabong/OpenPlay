@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Calendar, MapPin, Users, Clock, Plus, Loader2, X, Navigation, Timer } from 'lucide-react'
+import { Calendar, MapPin, Users, Clock, Plus, Loader2, X, Navigation, Timer, MoreHorizontal, Pencil, Trash2, Check } from 'lucide-react'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const EVENT_TYPES = [
@@ -15,27 +15,24 @@ const HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '
 const MINUTES = ['00', '15', '30', '45']
 const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-function getDaysInMonth(year, month) {
-  return new Date(year, month + 1, 0).getDate()
-}
+function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate() }
 
 function buildISO(year, month, day, hour, minute, ampm) {
   let h = parseInt(hour)
   if (ampm === 'PM' && h !== 12) h += 12
   if (ampm === 'AM' && h === 12) h = 0
-  // Build as Philippine time (UTC+8)
   const pad = n => String(n).padStart(2, '0')
   return `${year}-${pad(month + 1)}-${pad(day)}T${pad(h)}:${pad(minute)}:00+08:00`
 }
 
-// ── Venue Location Search ────────────────────────────────────────────────────
+// ── Venue Search ─────────────────────────────────────────────────────────────
 function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
-  const [query, setQuery]         = useState(venue || '')
+  const [query, setQuery]             = useState(venue || '')
   const [suggestions, setSuggestions] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [gpsLoading, setGpsLoading] = useState(false)
-  const [focused, setFocused]     = useState(false)
-  const debounceRef               = useRef(null)
+  const [searching, setSearching]     = useState(false)
+  const [gpsLoading, setGpsLoading]   = useState(false)
+  const [focused, setFocused]         = useState(false)
+  const debounceRef                   = useRef(null)
   const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
 
   async function searchPlaces(q) {
@@ -49,25 +46,18 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
         name:    r.address?.amenity || r.address?.leisure || r.address?.building || r.name || '',
         city:    r.address?.city || r.address?.town || r.address?.municipality || r.address?.county || '',
       })))
-    } catch { setSuggestions([]) }
-    finally  { setSearching(false) }
+    } catch { setSuggestions([]) } finally { setSearching(false) }
   }
 
   function handleInput(e) {
     const val = e.target.value
-    setQuery(val)
-    onVenueChange(val)
-    onCityChange('')
+    setQuery(val); onVenueChange(val); onCityChange('')
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(val), 350)
   }
 
   function pick(s) {
-    const v = s.name || s.display.split(',')[0].trim()
-    setQuery(s.display)
-    onVenueChange(v)
-    onCityChange(s.city)
-    setSuggestions([])
+    setQuery(s.display); onVenueChange(s.name || s.display.split(',')[0].trim()); onCityChange(s.city); setSuggestions([])
   }
 
   function clear() { setQuery(''); onVenueChange(''); onCityChange(''); setSuggestions([]) }
@@ -82,11 +72,8 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
         const name = data.address?.amenity || data.address?.leisure || data.address?.building || ''
         const c    = data.address?.city || data.address?.town || data.address?.municipality || ''
         const disp = name ? `${name}, ${c}` : c
-        setQuery(disp)
-        onVenueChange(name || disp)
-        onCityChange(c)
-      } catch { alert('Could not get location') }
-      finally  { setGpsLoading(false) }
+        setQuery(disp); onVenueChange(name || disp); onCityChange(c)
+      } catch { alert('Could not get location') } finally { setGpsLoading(false) }
     }, () => { setGpsLoading(false); alert('Location access denied') })
   }
 
@@ -94,22 +81,15 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
     <div>
       <div className="flex items-center gap-2 w-full rounded-2xl px-4" style={inputStyle}>
         <MapPin size={14} style={{ color: '#c8ff00' }} className="shrink-0" />
-        <input
-          className="flex-1 py-3.5 text-sm text-white bg-transparent focus:outline-none"
-          placeholder="Search venue or court…"
-          value={query}
-          onChange={handleInput}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 200)}
-          autoComplete="off"
-        />
+        <input className="flex-1 py-3.5 text-sm text-white bg-transparent focus:outline-none"
+          placeholder="Search venue or court…" value={query}
+          onChange={handleInput} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 200)} autoComplete="off" />
         {searching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
         {query && !searching && <button type="button" onClick={clear} style={{ color: 'rgba(255,255,255,0.3)' }}><X size={13} /></button>}
         <button type="button" onClick={gps} disabled={gpsLoading} style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
           {gpsLoading ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
         </button>
       </div>
-
       {focused && suggestions.length > 0 && (
         <div className="mt-1 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{ background: '#13131f' }}>
           {suggestions.map((s, i) => (
@@ -124,60 +104,52 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
           ))}
         </div>
       )}
-
-      {city && (
-        <p className="text-[10px] font-black mt-1.5 ml-1" style={{ color: '#c8ff00' }}>📍 {city}</p>
-      )}
+      {city && <p className="text-[10px] font-black mt-1.5 ml-1" style={{ color: '#c8ff00' }}>📍 {city}</p>}
     </div>
   )
 }
 
-// ── Date + Time Picker ───────────────────────────────────────────────────────
+// ── Date Time Picker ─────────────────────────────────────────────────────────
 function DateTimePicker({ label, value, onChange }) {
   const now   = new Date()
   const years = [now.getFullYear(), now.getFullYear() + 1]
-
   const [year,   setYear]   = useState(value?.year   || now.getFullYear())
   const [month,  setMonth]  = useState(value?.month  ?? now.getMonth())
   const [day,    setDay]    = useState(value?.day     || now.getDate())
   const [hour,   setHour]   = useState(value?.hour   || '08')
   const [minute, setMinute] = useState(value?.minute || '00')
   const [ampm,   setAmpm]   = useState(value?.ampm   || 'AM')
-
   const days = Array.from({ length: getDaysInMonth(year, month) }, (_, i) => i + 1)
 
   function emit(y, mo, d, h, mi, ap) {
-    onChange({ year: y, month: mo, day: d, hour: h, minute: mi, ampm: ap,
-      iso: buildISO(y, mo, d, h, mi, ap) })
+    onChange({ year: y, month: mo, day: d, hour: h, minute: mi, ampm: ap, iso: buildISO(y, mo, d, h, mi, ap) })
   }
 
   const sel = "rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none flex-1"
-  const selStyle = { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
+  const ss  = { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
 
   return (
     <div>
       <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
-      {/* Date row */}
       <div className="flex gap-2 mb-2">
-        <select className={sel} style={selStyle} value={month} onChange={e => { const v = +e.target.value; setMonth(v); emit(year, v, day, hour, minute, ampm) }}>
-          {MONTHS.map((m, i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
+        <select className={sel} style={ss} value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
+          {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
         </select>
-        <select className={sel} style={selStyle} value={day} onChange={e => { const v = +e.target.value; setDay(v); emit(year, month, v, hour, minute, ampm) }}>
+        <select className={sel} style={ss} value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
           {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
         </select>
-        <select className={sel} style={selStyle} value={year} onChange={e => { const v = +e.target.value; setYear(v); emit(v, month, day, hour, minute, ampm) }}>
+        <select className={sel} style={ss} value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
           {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
         </select>
       </div>
-      {/* Time row */}
       <div className="flex gap-2">
-        <select className={sel} style={selStyle} value={hour} onChange={e => { setHour(e.target.value); emit(year, month, day, e.target.value, minute, ampm) }}>
+        <select className={sel} style={ss} value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
           {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
         </select>
-        <select className={sel} style={selStyle} value={minute} onChange={e => { setMinute(e.target.value); emit(year, month, day, hour, e.target.value, ampm) }}>
+        <select className={sel} style={ss} value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
           {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
         </select>
-        <select className={sel} style={{ ...selStyle, fontWeight: 'bold' }} value={ampm} onChange={e => { setAmpm(e.target.value); emit(year, month, day, hour, minute, e.target.value) }}>
+        <select className={sel} style={{ ...ss, fontWeight: 'bold' }} value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
           <option value="AM" className="bg-ink-900">AM</option>
           <option value="PM" className="bg-ink-900">PM</option>
         </select>
@@ -186,10 +158,9 @@ function DateTimePicker({ label, value, onChange }) {
   )
 }
 
-// ── Countdown Timer ──────────────────────────────────────────────────────────
+// ── Countdown ────────────────────────────────────────────────────────────────
 function Countdown({ dateStart }) {
   const [time, setTime] = useState('')
-
   useEffect(() => {
     function tick() {
       const diff = new Date(dateStart) - new Date()
@@ -204,11 +175,9 @@ function Countdown({ dateStart }) {
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [dateStart])
-
   return (
     <div className="flex items-center gap-1.5 text-[10px] font-black" style={{ color: '#c8ff00' }}>
-      <Timer size={10} />
-      {time}
+      <Timer size={10} /> {time}
     </div>
   )
 }
@@ -220,30 +189,40 @@ const EVENT_TYPE_OPTIONS = [
   { id: 'clinic',     label: 'Clinic',     emoji: '📚', desc: 'Coaching & skills clinic' },
 ]
 
-function HostModal({ onClose, onSuccess, user }) {
-  const [loading,    setLoading]    = useState(false)
-  const [eventType,  setEventType]  = useState(null) // step 1: pick type
+function HostModal({ onClose, onSuccess, user, editEvent }) {
+  const isEdit = !!editEvent
+  const [loading,   setLoading]   = useState(false)
+  const [eventType, setEventType] = useState(editEvent?.event_type || null)
   const [form, setForm] = useState({
-    title: '', description: '', sport: 'badminton',
-    venue: '', city: '',
-    max_slots: 32, fee: 0,
+    title:       editEvent?.title       || '',
+    description: editEvent?.description || '',
+    sport:       editEvent?.sport       || 'badminton',
+    venue:       editEvent?.venue       || '',
+    city:        editEvent?.city        || '',
+    max_slots:   editEvent?.max_slots   || 32,
+    fee:         editEvent?.fee         || 0,
   })
   const [dateStart, setDateStart] = useState(null)
   const [dateEnd,   setDateEnd]   = useState(null)
 
   async function submit(e) {
     e.preventDefault()
-    if (!dateStart?.iso) return alert('Please set a start date and time')
+    if (!dateStart?.iso && !isEdit) return alert('Please set a start date and time')
     setLoading(true)
     const payload = {
       ...form,
       event_type:   eventType,
-      host_id:      user.id,
-      date_start:   dateStart.iso,
-      date_end:     dateEnd?.iso || null,
-      is_published: true,
+      ...(dateStart?.iso ? { date_start: dateStart.iso } : {}),
+      ...(dateEnd?.iso   ? { date_end:   dateEnd.iso   } : {}),
     }
-    const { error } = await supabase.from('events').insert([payload])
+    let error
+    if (isEdit) {
+      ({ error } = await supabase.from('events').update(payload).eq('id', editEvent.id).eq('host_id', user.id))
+    } else {
+      payload.host_id      = user.id
+      payload.is_published = true
+      ;({ error } = await supabase.from('events').insert([payload]))
+    }
     if (!error) { onSuccess(); onClose() }
     else alert('Error: ' + error.message)
     setLoading(false)
@@ -255,16 +234,14 @@ function HostModal({ onClose, onSuccess, user }) {
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
       <div className="w-full rounded-t-[2.5rem] border-t border-white/10 p-6 max-h-[90vh] overflow-y-auto" style={{ background: '#0f0f1a' }}>
-
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-black italic uppercase text-white">
-              {eventType ? `Host ${EVENT_TYPE_OPTIONS.find(t => t.id === eventType)?.label}` : 'Host an Event'}
+              {isEdit ? 'Edit Event' : eventType ? `Host ${EVENT_TYPE_OPTIONS.find(t => t.id === eventType)?.label}` : 'Host an Event'}
             </h2>
-            {eventType && (
+            {!isEdit && eventType && (
               <button type="button" onClick={() => setEventType(null)}
-                className="text-[10px] font-black uppercase tracking-widest mt-0.5"
-                style={{ color: 'rgba(255,255,255,0.4)' }}>
+                className="text-[10px] font-black uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
                 ← Change type
               </button>
             )}
@@ -274,8 +251,8 @@ function HostModal({ onClose, onSuccess, user }) {
           </button>
         </div>
 
-        {/* Step 1: Pick event type */}
-        {!eventType ? (
+        {/* Step 1: Pick type (only for new events) */}
+        {!eventType && !isEdit ? (
           <div className="space-y-3">
             <p className="text-xs font-bold mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>What kind of event are you hosting?</p>
             {EVENT_TYPE_OPTIONS.map(t => (
@@ -291,20 +268,11 @@ function HostModal({ onClose, onSuccess, user }) {
             ))}
           </div>
         ) : (
-          /* Step 2: Fill details */
           <form onSubmit={submit} className="space-y-4">
-
-            {/* Title */}
-            <input className={inputClass} style={inputStyle}
-              placeholder="Event Title *" value={form.title}
-              onChange={e => setForm({ ...form, title: e.target.value })} required />
-
-            {/* Description */}
-            <textarea className={inputClass + ' resize-none'} style={inputStyle}
-              placeholder="Description (optional)" rows={2}
+            <input className={inputClass} style={inputStyle} placeholder="Event Title *"
+              value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} required />
+            <textarea className={inputClass + ' resize-none'} style={inputStyle} placeholder="Description (optional)" rows={2}
               value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-
-            {/* Sport */}
             <div>
               <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Sport</label>
               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
@@ -313,31 +281,20 @@ function HostModal({ onClose, onSuccess, user }) {
                     className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black uppercase border-2 transition-all"
                     style={form.sport === s.id
                       ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f' }
-                      : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)' }
-                    }>
+                      : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)' }}>
                     {s.emoji} {s.label}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Venue with location search */}
             <div>
               <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Venue / Court</label>
-              <VenueSearch
-                venue={form.venue} city={form.city}
+              <VenueSearch venue={form.venue} city={form.city}
                 onVenueChange={v => setForm(f => ({ ...f, venue: v }))}
-                onCityChange={v  => setForm(f => ({ ...f, city: v  }))}
-              />
+                onCityChange={v  => setForm(f => ({ ...f, city: v  }))} />
             </div>
-
-            {/* Start Date/Time */}
             <DateTimePicker label="Start Date & Time *" value={dateStart} onChange={setDateStart} />
-
-            {/* End Date/Time */}
             <DateTimePicker label="End Date & Time (optional)" value={dateEnd} onChange={setDateEnd} />
-
-            {/* Slots & Fee */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Max Players</label>
@@ -350,11 +307,10 @@ function HostModal({ onClose, onSuccess, user }) {
                   value={form.fee} onChange={e => setForm({ ...form, fee: parseFloat(e.target.value) })} />
               </div>
             </div>
-
             <button type="submit" disabled={loading}
               className="w-full font-black py-4 rounded-2xl text-lg italic uppercase tracking-tight disabled:opacity-50"
               style={{ background: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 20px rgba(200,255,0,0.25)' }}>
-              {loading ? 'Publishing...' : 'Publish Event'}
+              {loading ? (isEdit ? 'Saving...' : 'Publishing...') : (isEdit ? 'Save Changes' : 'Publish Event')}
             </button>
           </form>
         )}
@@ -364,26 +320,33 @@ function HostModal({ onClose, onSuccess, user }) {
 }
 
 // ── Event Card ───────────────────────────────────────────────────────────────
-function EventCard({ event, allRegistrations, userRegistrations, onRegister }) {
-  const sport     = SPORTS.find(s => s.id === event.sport)
-  // ✅ Fixed: count ALL registrations for this event (not just user's, not filtered by status)
-  const slotsUsed = allRegistrations.filter(r => r.event_id === event.id).length
-  const slotsLeft = event.max_slots - slotsUsed
-  const isFull    = slotsLeft <= 0
-  const isReg     = userRegistrations.some(r => r.event_id === event.id)
+function EventCard({ event, allRegistrations, userRegistrations, user, onRegister, onDelete, onEdit }) {
+  const sport      = SPORTS.find(s => s.id === event.sport)
+  const slotsUsed  = allRegistrations.filter(r => r.event_id === event.id).length
+  const slotsLeft  = event.max_slots - slotsUsed
+  const isFull     = slotsLeft <= 0
+  const isReg      = userRegistrations.some(r => r.event_id === event.id)
+  const isHost     = user?.id === event.host_id
+  const [showMenu, setShowMenu]       = useState(false)
+  const [confirmDel, setConfirmDel]   = useState(false)
+  const menuRef                       = useRef(null)
+
+  useEffect(() => {
+    function outside(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [])
 
   const dateStr = event.date_start
-    ? new Date(event.date_start).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
-    : '—'
+    ? new Date(event.date_start).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
   const timeStr = event.date_start
-    ? new Date(event.date_start).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true })
-    : ''
+    ? new Date(event.date_start).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''
 
-  const typeBar = { tournament: '#FF4D00', open_play: '#c8ff00', clinic: '#60A5FA' }[event.event_type] || '#fff'
+  const typeBar   = { tournament: '#FF4D00', open_play: '#c8ff00', clinic: '#60A5FA' }[event.event_type] || '#fff'
   const typeBadge = {
-    tournament: { color: '#FF4D00', bg: 'rgba(255,77,0,0.12)',    border: 'rgba(255,77,0,0.25)'    },
-    open_play:  { color: '#c8ff00', bg: 'rgba(200,255,0,0.10)',   border: 'rgba(200,255,0,0.2)'    },
-    clinic:     { color: '#60A5FA', bg: 'rgba(96,165,250,0.10)',  border: 'rgba(96,165,250,0.2)'   },
+    tournament: { color: '#FF4D00', bg: 'rgba(255,77,0,0.12)',   border: 'rgba(255,77,0,0.25)'   },
+    open_play:  { color: '#c8ff00', bg: 'rgba(200,255,0,0.10)',  border: 'rgba(200,255,0,0.2)'   },
+    clinic:     { color: '#60A5FA', bg: 'rgba(96,165,250,0.10)', border: 'rgba(96,165,250,0.2)'  },
   }[event.event_type] || {}
 
   return (
@@ -391,7 +354,7 @@ function EventCard({ event, allRegistrations, userRegistrations, onRegister }) {
       <div className="h-2 w-full" style={{ background: typeBar }} />
       <div className="p-5">
 
-        {/* Type badge + fee */}
+        {/* Top row: badge + fee + host menu */}
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xl">{sport?.emoji || '🎯'}</span>
@@ -400,18 +363,71 @@ function EventCard({ event, allRegistrations, userRegistrations, onRegister }) {
               {event.event_type?.replace('_', ' ')}
             </span>
           </div>
-          {event.fee > 0 && (
-            <span className="text-[10px] font-black" style={{ color: 'rgba(255,255,255,0.55)' }}>₱{event.fee.toLocaleString()}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {event.fee > 0 && (
+              <span className="text-[10px] font-black" style={{ color: 'rgba(255,255,255,0.55)' }}>₱{event.fee.toLocaleString()}</span>
+            )}
+            {/* Host-only 3-dot menu */}
+            {isHost && (
+              <div className="relative" ref={menuRef}>
+                <button onClick={() => setShowMenu(v => !v)}
+                  className="p-1.5 rounded-xl hover:bg-white/10 transition-all"
+                  style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  <MoreHorizontal size={16} />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-8 rounded-2xl border border-white/10 shadow-2xl z-50 overflow-hidden min-w-[150px]"
+                    style={{ background: '#1a1a2e' }}>
+                    <button onClick={() => { setShowMenu(false); onEdit(event) }}
+                      className="w-full flex items-center gap-2.5 px-4 py-3 text-white text-xs font-black uppercase tracking-widest hover:bg-white/5 border-b border-white/5">
+                      <Pencil size={13} /> Edit Event
+                    </button>
+                    <button onClick={() => { setShowMenu(false); setConfirmDel(true) }}
+                      className="w-full flex items-center gap-2.5 px-4 py-3 text-xs font-black uppercase tracking-widest hover:bg-red-500/10"
+                      style={{ color: '#ff4d4d' }}>
+                      <Trash2 size={13} /> Delete Event
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        <h3 className="font-black text-base text-white mb-3 leading-tight">{event.title}</h3>
+        {/* Delete confirmation */}
+        {confirmDel && (
+          <div className="mb-4 p-4 rounded-2xl border" style={{ background: 'rgba(255,77,77,0.08)', borderColor: 'rgba(255,77,77,0.2)' }}>
+            <p className="text-sm text-white font-bold mb-1">Delete this event?</p>
+            <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>All registrations will also be removed.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDel(false)}
+                className="flex-1 py-2 rounded-xl text-xs font-black uppercase border"
+                style={{ color: 'rgba(255,255,255,0.5)', borderColor: 'rgba(255,255,255,0.1)' }}>
+                Cancel
+              </button>
+              <button onClick={() => { setConfirmDel(false); onDelete(event.id) }}
+                className="flex-1 py-2 rounded-xl text-xs font-black uppercase text-white"
+                style={{ background: '#ff4d4d' }}>
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+
+        <h3 className="font-black text-base text-white mb-1 leading-tight">{event.title}</h3>
+
+        {/* Host username */}
+        {event.host?.username && (
+          <p className="text-[10px] font-black mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Hosted by <span style={{ color: '#c8ff00' }}>@{event.host.username}</span>
+          </p>
+        )}
 
         {/* Meta */}
         <div className="space-y-1.5 mb-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>
             <Calendar size={11} style={{ color: 'rgba(255,255,255,0.35)' }} className="shrink-0" />
-            {dateStr} {timeStr && `· ${timeStr}`}
+            {dateStr}{timeStr && ` · ${timeStr}`}
           </div>
           {(event.venue || event.city) && (
             <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>
@@ -441,16 +457,26 @@ function EventCard({ event, allRegistrations, userRegistrations, onRegister }) {
           </p>
         )}
 
-        <button onClick={() => onRegister(event)} disabled={isFull || isReg}
-          className="w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
-          style={isReg
-            ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
-            : isFull
-            ? { background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'not-allowed' }
-            : { background: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.25)' }
-          }>
-          {isReg ? '✓ Registered' : isFull ? 'Full' : 'Register Now'}
-        </button>
+        {/* Register / Cancel / Full button */}
+        {!isHost && (
+          <button onClick={() => onRegister(event)} disabled={isFull && !isReg}
+            className="w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-[0.98]"
+            style={isReg
+              ? { background: 'rgba(255,77,77,0.1)', color: '#ff6b6b', border: '1px solid rgba(255,77,77,0.3)' }
+              : isFull
+              ? { background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.08)', cursor: 'not-allowed' }
+              : { background: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.25)' }
+            }>
+            {isReg ? '✕ Cancel Registration' : isFull ? 'Full' : 'Register Now'}
+          </button>
+        )}
+
+        {isHost && (
+          <div className="py-2 text-center text-[10px] font-black uppercase tracking-widest rounded-2xl border border-white/10"
+            style={{ color: '#c8ff00' }}>
+            👑 You're hosting this
+          </div>
+        )}
       </div>
     </div>
   )
@@ -460,21 +486,22 @@ function EventCard({ event, allRegistrations, userRegistrations, onRegister }) {
 export default function EventsPage() {
   const { user }                          = useAuth()
   const [events, setEvents]               = useState([])
-  const [allRegs, setAllRegs]             = useState([])   // all registrations for slot count
-  const [userRegs, setUserRegs]           = useState([])   // current user's registrations
+  const [allRegs, setAllRegs]             = useState([])
+  const [userRegs, setUserRegs]           = useState([])
   const [loading, setLoading]             = useState(true)
   const [typeFilter, setTypeFilter]       = useState('all')
   const [showHostModal, setShowHostModal] = useState(false)
+  const [editEvent, setEditEvent]         = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     const [{ data: evts }, { data: aRegs }, { data: uRegs }] = await Promise.all([
-      // ✅ Fetch all future published events
-      supabase.from('events').select('*').eq('is_published', true)
-        .gte('date_start', new Date().toISOString()).order('date_start', { ascending: true }),
-      // ✅ Fetch ALL registrations for all events (for accurate slot count)
+      // Join host user info for username display
+      supabase.from('events').select('*, host:users!events_host_id_fkey(id, username)')
+        .eq('is_published', true)
+        .gte('date_start', new Date().toISOString())
+        .order('date_start', { ascending: true }),
       supabase.from('event_registrations').select('event_id, user_id'),
-      // ✅ Fetch current user's registrations separately
       user
         ? supabase.from('event_registrations').select('*').eq('user_id', user.id)
         : Promise.resolve({ data: [] }),
@@ -487,9 +514,8 @@ export default function EventsPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // ✅ Realtime subscription
   useEffect(() => {
-    const channel = supabase.channel('events-realtime')
+    const channel = supabase.channel('events-realtime-v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'event_registrations' }, fetchData)
       .subscribe()
@@ -504,6 +530,12 @@ export default function EventsPage() {
     } else {
       await supabase.from('event_registrations').insert([{ event_id: event.id, user_id: user.id, status: 'confirmed' }])
     }
+    fetchData()
+  }
+
+  async function handleDelete(eventId) {
+    await supabase.from('event_registrations').delete().eq('event_id', eventId)
+    await supabase.from('events').delete().eq('id', eventId).eq('host_id', user.id)
     fetchData()
   }
 
@@ -563,7 +595,8 @@ export default function EventsPage() {
                 <Clock size={10} /> This Week
               </p>
               {upcoming.map(e => (
-                <EventCard key={e.id} event={e} allRegistrations={allRegs} userRegistrations={userRegs} onRegister={handleRegister} />
+                <EventCard key={e.id} event={e} allRegistrations={allRegs} userRegistrations={userRegs}
+                  user={user} onRegister={handleRegister} onDelete={handleDelete} onEdit={ev => setEditEvent(ev)} />
               ))}
             </>
           )}
@@ -574,14 +607,20 @@ export default function EventsPage() {
                 <Calendar size={10} /> Coming Up
               </p>
               {later.map(e => (
-                <EventCard key={e.id} event={e} allRegistrations={allRegs} userRegistrations={userRegs} onRegister={handleRegister} />
+                <EventCard key={e.id} event={e} allRegistrations={allRegs} userRegistrations={userRegs}
+                  user={user} onRegister={handleRegister} onDelete={handleDelete} onEdit={ev => setEditEvent(ev)} />
               ))}
             </>
           )}
         </div>
       )}
 
-      {showHostModal && <HostModal user={user} onClose={() => setShowHostModal(false)} onSuccess={fetchData} />}
+      {showHostModal && (
+        <HostModal user={user} onClose={() => setShowHostModal(false)} onSuccess={fetchData} />
+      )}
+      {editEvent && (
+        <HostModal user={user} editEvent={editEvent} onClose={() => setEditEvent(null)} onSuccess={fetchData} />
+      )}
     </div>
   )
 }
