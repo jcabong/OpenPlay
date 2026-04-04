@@ -30,7 +30,10 @@ function MatchRow({ game }) {
 }
 
 export default function PublicProfilePage() {
-  const { username } = useParams()
+  // 1. Clean the username (remove @ if it exists in the URL)
+  let { username } = useParams()
+  const cleanUsername = username?.replace('@', '')
+  
   const { user } = useAuth()
   const [profile, setProfile] = useState(null)
   const [games, setGames] = useState([])
@@ -40,31 +43,80 @@ export default function PublicProfilePage() {
   const [activeTab, setActiveTab] = useState('Posts')
 
   const load = useCallback(async () => {
+    if (!cleanUsername) return
     setLoading(true)
-    const { data: usr } = await supabase.from('profiles').select('*').eq('username', username).single()
-    if (!usr) { setLoading(false); return }
+    
+    // 2. Use .ilike for case-insensitive lookup (matches jcva, JCVA, Jcva)
+    const { data: usr, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .ilike('username', cleanUsername)
+      .maybeSingle()
+
+    if (error || !usr) {
+      console.error("Profile fetch error:", error)
+      setProfile(null)
+      setLoading(false)
+      return
+    }
+
     setProfile(usr)
 
+    // 3. Fetch matches and posts for this user
     const [{ data: g }, { data: p }] = await Promise.all([
-      supabase.from('games').select('*').eq('user_id', usr.id).eq('is_deleted', false).order('created_at', { ascending: false }),
-      supabase.from('posts').select('*, author:profiles(id,username), likes(user_id), comments(*, profiles(username))').eq('author_id', usr.id).eq('is_deleted', false).order('inserted_at', { ascending: false })
+      supabase.from('games')
+        .select('*')
+        .eq('user_id', usr.id)
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false }),
+      supabase.from('posts')
+        .select('*, author:profiles(id,username), likes(user_id), comments(*, profiles(username))')
+        .eq('author_id', usr.id)
+        .eq('is_deleted', false)
+        .order('inserted_at', { ascending: false })
     ])
+    
     setGames(g || [])
     setPosts(p || [])
 
+    // 4. Calculate Head-to-Head if viewing someone else
     if (user && user.id !== usr.id) {
-      const { data: myGames } = await supabase.from('games').select('result').eq('user_id', user.id).eq('tagged_opponent_id', usr.id).eq('is_deleted', false)
+      const { data: myGames } = await supabase
+        .from('games')
+        .select('result')
+        .eq('user_id', user.id)
+        .eq('tagged_opponent_id', usr.id)
+        .eq('is_deleted', false)
+      
       if (myGames?.length) {
-        setH2h({ wins: myGames.filter(x => x.result === 'win').length, losses: myGames.filter(x => x.result === 'loss').length, total: myGames.length })
+        setH2h({ 
+          wins: myGames.filter(x => x.result === 'win').length, 
+          losses: myGames.filter(x => x.result === 'loss').length, 
+          total: myGames.length 
+        })
       }
     }
     setLoading(false)
-  }, [username, user])
+  }, [cleanUsername, user])
 
   useEffect(() => { load() }, [load])
 
-  if (loading) return <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>
-  if (!profile) return <div className="min-h-screen bg-[#0a0a0f] text-center pt-20 text-white">User not found</div>
+  if (loading) return (
+    <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <Loader2 className="animate-spin text-accent" />
+    </div>
+  )
+
+  if (!profile) return (
+    <div className="min-h-screen bg-[#0a0a0f] text-center pt-32 px-10">
+      <div className="text-6xl mb-6">🔍</div>
+      <h2 className="text-xl font-black uppercase text-white italic">User Not Found</h2>
+      <p className="text-white/40 text-sm mt-2 mb-8">The player @{cleanUsername} hasn't joined OpenPlay yet.</p>
+      <Link to="/" className="text-accent font-black uppercase text-xs tracking-widest border-b border-accent pb-1">
+        Back to Feed
+      </Link>
+    </div>
+  )
 
   const wins = games.filter(g => g.result === 'win').length
   const rate = games.length ? Math.round((wins / games.length) * 100) : 0
@@ -79,10 +131,10 @@ export default function PublicProfilePage() {
 
       <div className="px-5 pb-6">
         <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl mb-4 shadow-[0_0_20px_rgba(200,255,0,0.3)]">
-          {profile.username.charAt(0).toUpperCase()}
+          {(profile.username || 'P').charAt(0).toUpperCase()}
         </div>
         <h1 className="text-2xl font-black italic uppercase tracking-tighter">@{profile.username}</h1>
-        <p className="text-white/60 text-sm mt-1">{profile.bio || "No bio yet."}</p>
+        <p className="text-white/60 text-sm mt-1 leading-relaxed">{profile.bio || "This player is ready for a match."}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3 px-4 mb-6">
@@ -106,23 +158,38 @@ export default function PublicProfilePage() {
               <p className="text-[10px] font-black uppercase tracking-widest text-accent/60">Your Head-to-Head</p>
               <p className="font-black text-white">{h2h.wins}W — {h2h.losses}L</p>
             </div>
+            <div className="ml-auto text-[10px] font-bold text-white/30 uppercase">
+              {h2h.total} Played
+            </div>
           </div>
         </div>
       )}
 
       <div className="px-4 flex gap-2 mb-4">
         {['Posts', 'Match Logs'].map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-            activeTab === t ? 'bg-white text-ink-900 border-white' : 'text-white/40 border-white/10'
-          }`}>{t}</button>
+          <button 
+            key={t} 
+            onClick={() => setActiveTab(t)} 
+            className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+              activeTab === t ? 'bg-white text-ink-900 border-white' : 'text-white/40 border-white/10'
+            }`}
+          >
+            {t}
+          </button>
         ))}
       </div>
 
       <div className="px-4 space-y-4">
         {activeTab === 'Posts' ? (
-          posts.length ? posts.map(p => <PostCard key={p.id} post={p} onRefresh={load} />) : <p className="text-center py-10 text-white/20 uppercase text-xs font-black">No posts</p>
+          posts.length ? posts.map(p => <PostCard key={p.id} post={p} onRefresh={load} />) : <p className="text-center py-14 text-white/20 uppercase text-[10px] font-black tracking-widest">No posts yet</p>
         ) : (
-          games.length ? <div className="bg-white/5 rounded-3xl border border-white/10 overflow-hidden">{games.map(g => <MatchRow key={g.id} game={g} />)}</div> : <p className="text-center py-10 text-white/20 uppercase text-xs font-black">No matches</p>
+          games.length ? (
+            <div className="bg-white/5 rounded-3xl border border-white/10 overflow-hidden">
+              {games.map(g => <MatchRow key={g.id} game={g} />)}
+            </div>
+          ) : (
+            <p className="text-center py-14 text-white/20 uppercase text-[10px] font-black tracking-widest">No matches recorded</p>
+          )
         )}
       </div>
     </div>
