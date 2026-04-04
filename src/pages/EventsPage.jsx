@@ -129,13 +129,23 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
         try {
           const res  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`)
           const data = await res.json()
-          const result     = data.results?.[0]
-          if (!result) { alert('Could not get location'); setGpsLoading(false); return }
-          const components = result.address_components
-          const premise    = components.find(c => c.types.includes('premise') || c.types.includes('establishment'))
-          const cityComp   = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
-          const name       = premise?.long_name || result.formatted_address.split(',')[0].trim()
-          const cityVal    = cityComp?.long_name || ''
+          if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
+          // Try each result until we find a useful name
+          let name = '', cityVal = ''
+          for (const result of data.results) {
+            const c = result.address_components
+            const premise  = c.find(x => x.types.includes('premise'))
+            const estab    = c.find(x => x.types.includes('establishment'))
+            const poi      = c.find(x => x.types.includes('point_of_interest'))
+            const route    = c.find(x => x.types.includes('route'))
+            const sublocal = c.find(x => x.types.includes('sublocality_level_1'))
+            const city     = c.find(x => x.types.includes('locality') || x.types.includes('administrative_area_level_3'))
+            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || ''
+            if (!cityVal) cityVal = city?.long_name || ''
+            if (name && cityVal) break
+          }
+          // Final fallback: first part of formatted address
+          if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
           setQuery(name)
           onVenueChange(name)
           onCityChange(cityVal)
@@ -145,7 +155,13 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
           setGpsLoading(false)
         }
       },
-      () => { setGpsLoading(false); alert('Location access denied') }
+      (err) => {
+        setGpsLoading(false)
+        if (err.code === 1) alert('Location access denied. Please enable location in your browser settings.')
+        else if (err.code === 2) alert('Location unavailable. Try again.')
+        else alert('Location request timed out. Try again.')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
   }
 
@@ -672,6 +688,50 @@ function EventCard({ event, allRegistrations, userRegistrations, user, onRegiste
           </div>
         </div>
 
+        {/* Slots progress bar */}
+        <div className="mb-3">
+          <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.min(100, (slotsUsed / event.max_slots) * 100)}%`,
+                background: isFull ? '#ff4d4d' : slotsLeft <= 5 ? '#facc15' : '#c8ff00',
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Registered players */}
+        {slotsUsed > 0 && (
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex -space-x-2">
+              {allRegistrations
+                .filter(r => r.event_id === event.id)
+                .slice(0, 5)
+                .map((r, i) => {
+                  const uname = r.users?.username || '?'
+                  const colors = ['#c8ff00','#f59e0b','#60a5fa','#a78bfa','#f472b6']
+                  return (
+                    <div key={i}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-black border-2 shrink-0"
+                      style={{ background: colors[i % colors.length], color: '#0a0a0f', borderColor: '#0a0a0f' }}
+                      title={`@${uname}`}>
+                      {uname.charAt(0).toUpperCase()}
+                    </div>
+                  )
+                })}
+            </div>
+            <p className="text-[10px] font-bold" style={{ color: 'rgba(255,255,255,0.45)' }}>
+              {slotsUsed === 1
+                ? `@${allRegistrations.find(r => r.event_id === event.id)?.users?.username || '...'} is going`
+                : slotsUsed <= 3
+                ? allRegistrations.filter(r => r.event_id === event.id).map(r => `@${r.users?.username}`).join(', ')
+                : `@${allRegistrations.find(r => r.event_id === event.id)?.users?.username} +${slotsUsed - 1} others going`
+              }
+            </p>
+          </div>
+        )}
+
         {/* Countdown */}
         {event.date_start && new Date(event.date_start) > new Date() && (
           <div className="mb-3 px-3 py-2 rounded-xl border border-white/5" style={{ background: 'rgba(200,255,0,0.06)' }}>
@@ -730,7 +790,7 @@ export default function EventsPage() {
         .eq('is_published', true)
         .gte('date_start', new Date().toISOString())
         .order('date_start', { ascending: true }),
-      supabase.from('event_registrations').select('event_id, user_id'),
+      supabase.from('event_registrations').select('event_id, user_id, users(id, username)'),
       user
         ? supabase.from('event_registrations').select('*').eq('user_id', user.id)
         : Promise.resolve({ data: [] }),

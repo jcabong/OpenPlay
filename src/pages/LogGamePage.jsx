@@ -133,15 +133,22 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
             `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`
           )
           const data = await res.json()
-          const result = data.results?.[0]
-          if (!result) { alert('Could not get location'); setGpsLoading(false); return }
-          const components = result.address_components
-          const premise    = components.find(c => c.types.includes('premise') || c.types.includes('establishment'))
-          const cityComp     = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
-          const provinceComp = components.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
-          const name         = premise?.long_name || result.formatted_address.split(',')[0].trim()
-          const cityVal      = cityComp?.long_name || ''
-          const provinceVal  = provinceComp?.long_name || ''
+          if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
+          // Try each result until we find a useful name
+          let name = '', cityVal = '', provinceVal = ''
+          for (const result of data.results) {
+            const c = result.address_components
+            const premise  = c.find(x => x.types.includes('premise'))
+            const estab    = c.find(x => x.types.includes('establishment'))
+            const poi      = c.find(x => x.types.includes('point_of_interest'))
+            const city     = c.find(x => x.types.includes('locality') || x.types.includes('administrative_area_level_3'))
+            const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
+            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || ''
+            if (!cityVal) cityVal = city?.long_name || ''
+            if (!provinceVal) provinceVal = province?.long_name || ''
+            if (name && cityVal) break
+          }
+          if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
           setQuery(name)
           onCourtChange(name)
           onCityChange(cityVal)
@@ -152,7 +159,13 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           setGpsLoading(false)
         }
       },
-      () => { setGpsLoading(false); alert('Location access denied') }
+      (err) => {
+        setGpsLoading(false)
+        if (err.code === 1) alert('Location access denied. Please enable location in your browser settings.')
+        else if (err.code === 2) alert('Location unavailable. Try again.')
+        else alert('Location request timed out. Try again.')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
   }
 
