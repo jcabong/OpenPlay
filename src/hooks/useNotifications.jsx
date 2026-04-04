@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function useNotifications(userId) {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount]     = useState(0)
+  const pollRef                           = useRef(null)
 
   const fetchNotifications = useCallback(async () => {
     if (!userId) return
@@ -17,11 +18,12 @@ export function useNotifications(userId) {
     setUnreadCount((data || []).filter(n => !n.is_read).length)
   }, [userId])
 
+  // Initial fetch
   useEffect(() => {
     fetchNotifications()
   }, [fetchNotifications])
 
-  // Realtime — new notification comes in instantly
+  // Realtime subscription — works if WebSocket is available
   useEffect(() => {
     if (!userId) return
     const channel = supabase
@@ -32,8 +34,32 @@ export function useNotifications(userId) {
         table: 'notifications',
         filter: `user_id=eq.${userId}`,
       }, () => fetchNotifications())
-      .subscribe()
-    return () => supabase.removeChannel(channel)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Realtime connected — clear polling fallback
+          if (pollRef.current) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+          }
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          // Realtime failed — start polling every 15s as fallback
+          if (!pollRef.current) {
+            pollRef.current = setInterval(fetchNotifications, 15000)
+          }
+        }
+      })
+
+    // Also start polling immediately as a safety net
+    // (will be cleared if realtime connects successfully)
+    pollRef.current = setInterval(fetchNotifications, 15000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
   }, [userId, fetchNotifications])
 
   async function markAllRead() {
@@ -59,7 +85,7 @@ export function useNotifications(userId) {
 // ── Helper: send a notification ───────────────────────────────────────────────
 export async function sendNotification({ userId, type, title, body, data = {} }) {
   if (!userId) return
-  await supabase.from('notifications').insert([{
+  const { error } = await supabase.from('notifications').insert([{
     user_id:    userId,
     type,
     title,
@@ -68,23 +94,25 @@ export async function sendNotification({ userId, type, title, body, data = {} })
     is_read:    false,
     created_at: new Date().toISOString(),
   }])
+  if (error) console.error('sendNotification error:', error.message)
 }
 
-// ── Helper: extract @mentions from text, return user_ids ─────────────────────
+// ── Helper: extract @mentions and notify each user ────────────────────────────
 export async function notifyMentions({ text, fromUser, postId, commentId }) {
-  if (!text || !fromUser) return
+  if (!text || !fromUser?.username) return
   const mentionHandles = [...new Set((text.match(/@(\w+)/g) || []).map(m => m.slice(1).toLowerCase()))]
   if (!mentionHandles.length) return
 
-  const { data: mentionedUsers } = await supabase
+  const { data: mentionedUsers, error } = await supabase
     .from('users')
     .select('id, username')
     .in('username', mentionHandles)
 
+  if (error) { console.error('notifyMentions lookup error:', error.message); return }
   if (!mentionedUsers?.length) return
 
-  const notifications = mentionedUsers
-    .filter(u => u.id !== fromUser.id) // don't notify yourself
+  const rows = mentionedUsers
+    .filter(u => u.id !== fromUser.id)
     .map(u => ({
       user_id:    u.id,
       type:       commentId ? 'mention_comment' : 'mention_post',
@@ -95,7 +123,8 @@ export async function notifyMentions({ text, fromUser, postId, commentId }) {
       created_at: new Date().toISOString(),
     }))
 
-  if (notifications.length) {
-    await supabase.from('notifications').insert(notifications)
+  if (rows.length) {
+    const { error: insertError } = await supabase.from('notifications').insert(rows)
+    if (insertError) console.error('notifyMentions insert error:', insertError.message)
   }
 }
