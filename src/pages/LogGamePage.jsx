@@ -32,7 +32,7 @@ function useGoogleMaps() {
   return ready
 }
 
-function LocationSearch({ courtName, city, onCourtChange, onCityChange, onProvinceChange }) {
+function LocationSearch({ courtName, city, province, onCourtChange, onCityChange, onProvinceChange }) {
   const [query, setQuery]             = useState(courtName || '')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching]     = useState(false)
@@ -210,13 +210,21 @@ function LocationSearch({ courtName, city, onCourtChange, onCityChange, onProvin
         </div>
       )}
 
-      {/* Selected city badge */}
-      {city && (
-        <div className="px-4 pb-2 flex items-center gap-1.5">
-          <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-            style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
-            📍 {city}
-          </span>
+      {/* Selected city + province badge */}
+      {(city || province) && (
+        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+          {city && (
+            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+              📍 {city}
+            </span>
+          )}
+          {province && (
+            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
+              🗺️ {province}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -395,6 +403,7 @@ export default function LogGamePage() {
             onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
             onCityChange={v => setFormData(f => ({ ...f, city: v }))}
             onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
+            province={formData.province}
           />
         </div>
 
@@ -428,7 +437,7 @@ export default function LogGamePage() {
                   <button
                     key={u.id}
                     type="button"
-                    onClick={() => { setTaggedUser(u); setSearchResults([]) }}
+                    onMouseDown={() => { setTaggedUser(u); setSearchResults([]) }}
                     className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
                   >
                     <span className="font-bold text-white">@{u.username}</span>

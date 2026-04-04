@@ -588,6 +588,7 @@ export default function EventsPage() {
   const [userRegs, setUserRegs]           = useState([])
   const [loading, setLoading]             = useState(true)
   const [typeFilter, setTypeFilter]       = useState('all')
+  const [sportFilter, setSportFilter]     = useState('all')
   const [showHostModal, setShowHostModal] = useState(false)
   const [editEvent, setEditEvent]         = useState(null)
 
@@ -637,7 +638,11 @@ export default function EventsPage() {
     fetchData()
   }
 
-  const filtered = events.filter(e => typeFilter === 'all' || e.event_type === typeFilter)
+  const filtered = events.filter(e => {
+    if (typeFilter !== 'all' && e.event_type !== typeFilter) return false
+    if (sportFilter !== 'all' && e.sport !== sportFilter) return false
+    return true
+  })
   const now      = new Date()
   const upcoming = filtered.filter(e => (new Date(e.date_start) - now) <= 7 * 24 * 60 * 60 * 1000)
   const later    = filtered.filter(e => (new Date(e.date_start) - now) >  7 * 24 * 60 * 60 * 1000)
@@ -661,7 +666,7 @@ export default function EventsPage() {
       </div>
 
       {/* Type filter */}
-      <div className="flex gap-2 px-5 pb-4 overflow-x-auto no-scrollbar">
+      <div className="flex gap-2 px-5 pb-3 overflow-x-auto no-scrollbar">
         {EVENT_TYPES.map(t => (
           <button key={t.id} onClick={() => setTypeFilter(t.id)}
             className="px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 shrink-0 transition-all"
@@ -670,6 +675,20 @@ export default function EventsPage() {
               : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)' }
             }>
             {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sport filter */}
+      <div className="flex gap-2 px-5 pb-4 overflow-x-auto no-scrollbar">
+        {[{ id: 'all', label: 'All Sports', emoji: '🌐' }, ...SPORTS].map(s => (
+          <button key={s.id} onClick={() => setSportFilter(s.id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all"
+            style={sportFilter === s.id
+              ? { background: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.3)', color: '#ffffff' }
+              : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }
+            }>
+            {s.emoji} {s.label}
           </button>
         ))}
       </div>
