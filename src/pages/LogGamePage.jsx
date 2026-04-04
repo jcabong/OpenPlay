@@ -83,6 +83,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
 
+  // ✅ FIXED: Better city/province extraction
   async function pickSuggestion(s) {
     setQuery(s.name)
     onCourtChange(s.name)
@@ -93,13 +94,51 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
         id: s.placeId,
         requestedLanguage: 'en',
       })
-      await place.fetchFields({ fields: ['addressComponents'] })
+      await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
       const comps = place.addressComponents || []
-      const cityComp     = comps.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3') || c.types.includes('sublocality_level_1'))
-      const provinceComp = comps.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
-      onCityChange(cityComp?.longText || cityComp?.long_name || '')
-      onProvinceChange(provinceComp?.longText || provinceComp?.long_name || '')
-    } catch {
+      
+      let cityVal = ''
+      let provinceVal = ''
+      
+      // Try to find city/locality
+      const locality = comps.find(c => 
+        c.types.includes('locality') || 
+        c.types.includes('administrative_area_level_3') ||
+        c.types.includes('sublocality_level_1') ||
+        c.types.includes('sublocality')
+      )
+      
+      // Try to find province/region
+      const provinceComp = comps.find(c => 
+        c.types.includes('administrative_area_level_2') ||
+        c.types.includes('administrative_area_level_1')
+      )
+      
+      cityVal = locality?.longText || locality?.long_name || ''
+      provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
+      
+      // Fallback: parse from secondary text
+      if (!cityVal && s.secondary) {
+        const secondaryParts = s.secondary.split(',').map(p => p.trim())
+        cityVal = secondaryParts[0] || ''
+        provinceVal = secondaryParts[1] || provinceVal
+      }
+      
+      // Fallback: parse from formatted address
+      if (!cityVal && place.formattedAddress) {
+        const parts = place.formattedAddress.split(',').map(p => p.trim())
+        if (parts.length >= 2) {
+          cityVal = parts[parts.length - 3] || parts[parts.length - 2] || ''
+        }
+      }
+      
+      onCityChange(cityVal)
+      onProvinceChange(provinceVal)
+      
+      console.log('📍 Location parsed:', { court: s.name, city: cityVal, province: provinceVal })
+      
+    } catch (err) {
+      console.error('Place details error:', err)
       const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
       onCityChange(parts[0] || '')
       onProvinceChange(parts[1] || '')
@@ -118,6 +157,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     setSuggestions([])
   }
 
+  // ✅ FIXED: Better GPS location detection
   async function detectGPS() {
     if (!navigator.geolocation) return alert('Geolocation not supported')
     setGpsLoading(true)
@@ -129,24 +169,34 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           )
           const data = await res.json()
           if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
+          
           let name = '', cityVal = '', provinceVal = ''
+          
           for (const result of data.results) {
             const c = result.address_components
             const premise  = c.find(x => x.types.includes('premise'))
             const estab    = c.find(x => x.types.includes('establishment'))
             const poi      = c.find(x => x.types.includes('point_of_interest'))
-            const city     = c.find(x => x.types.includes('locality') || x.types.includes('administrative_area_level_3'))
+            const route    = c.find(x => x.types.includes('route'))
+            const locality = c.find(x => x.types.includes('locality'))
             const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
-            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || ''
-            if (!cityVal) cityVal = city?.long_name || ''
+            
+            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
+            if (!cityVal) cityVal = locality?.long_name || ''
             if (!provinceVal) provinceVal = province?.long_name || ''
+            
             if (name && cityVal) break
           }
+          
           if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
+          
           setQuery(name)
           onCourtChange(name)
           onCityChange(cityVal)
           onProvinceChange(provinceVal)
+          
+          console.log('📍 GPS detected:', { name, city: cityVal, province: provinceVal })
+          
         } catch {
           alert('Could not get location')
         } finally {
@@ -256,25 +306,40 @@ export default function LogGamePage() {
   const [taggedUser, setTaggedUser]     = useState(null)
   const [isSearching, setIsSearching]   = useState(false)
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery.length >= 2 && !taggedUser) searchOpponents(searchQuery)
-      else setSearchResults([])
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery, taggedUser])
-
+  // ✅ FIXED: Search opponents from 'users' table (not 'profiles')
   async function searchOpponents(query) {
+    if (!query || query.length < 2) return
     setIsSearching(true)
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, username, city')
+    
+    console.log('🔍 Searching for opponent:', query)
+    
+    const { data, error } = await supabase
+      .from('users')  // ← Changed from 'profiles' to 'users'
+      .select('id, username, display_name, city, region')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
       .limit(5)
-    setSearchResults(data || [])
+    
+    if (error) {
+      console.error('Search error:', error)
+    } else {
+      console.log('✅ Found opponents:', data)
+      setSearchResults(data || [])
+    }
     setIsSearching(false)
   }
+
+  // ✅ FIXED: useEffect with correct dependencies
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.length >= 2 && !taggedUser) {
+        searchOpponents(searchQuery)
+      } else if (searchQuery.length === 0) {
+        setSearchResults([])
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery, taggedUser])
 
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
@@ -460,26 +525,48 @@ export default function LogGamePage() {
                 style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
                 placeholder="Tag opponent (username)"
                 value={taggedUser ? `@${taggedUser.username}` : searchQuery}
-                onChange={e => { setTaggedUser(null); setSearchQuery(e.target.value) }}
+                onChange={e => { 
+                  setTaggedUser(null)
+                  setSearchQuery(e.target.value)
+                  setSearchResults([])
+                }}
               />
               {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
               {taggedUser && (
-                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery('') }} className="shrink-0 text-red-400">
+                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]); }} className="shrink-0 text-red-400">
                   <X size={15} />
                 </button>
               )}
             </div>
+            {/* ✅ FIXED: Opponent dropdown with better display */}
             {searchResults.length > 0 && !taggedUser && (
               <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
                 {searchResults.map(u => (
                   <button
                     key={u.id}
                     type="button"
-                    onMouseDown={() => { setTaggedUser(u); setSearchResults([]) }}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setTaggedUser(u)
+                      setSearchQuery('')
+                      setSearchResults([])
+                      console.log('✅ Tagged opponent:', u.username)
+                    }}
                     className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
                   >
-                    <span className="font-bold text-white">@{u.username}</span>
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{u.city}</span>
+                    <div>
+                      <span className="font-bold text-white">@{u.username}</span>
+                      {u.display_name && (
+                        <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
+                          ({u.display_name})
+                        </span>
+                      )}
+                    </div>
+                    {(u.city || u.region) && (
+                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                        📍 {u.city || u.region}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
