@@ -35,8 +35,6 @@ const EVENT_TYPES = [
   { id: 'clinic',     label: 'Clinics'     },
 ]
 
-const HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'))
-const MINUTES = ['00', '15', '30', '45']
 const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate() }
@@ -205,51 +203,186 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
   )
 }
 
-// ── Date Time Picker ─────────────────────────────────────────────────────────
-function DateTimePicker({ label, value, onChange }) {
-  const now   = new Date()
-  const years = [now.getFullYear(), now.getFullYear() + 1]
-  const [year,   setYear]   = useState(value?.year   || now.getFullYear())
-  const [month,  setMonth]  = useState(value?.month  ?? now.getMonth())
-  const [day,    setDay]    = useState(value?.day     || now.getDate())
-  const [hour,   setHour]   = useState(value?.hour   || '08')
-  const [minute, setMinute] = useState(value?.minute || '00')
-  const [ampm,   setAmpm]   = useState(value?.ampm   || 'AM')
-  const days = Array.from({ length: getDaysInMonth(year, month) }, (_, i) => i + 1)
+// ── Date Time Picker (Calendar popup + time scroll) ──────────────────────────
+const TIME_SLOTS = []
+for (let h = 0; h < 24; h++) {
+  for (let m of [0, 30]) {
+    const ampm = h < 12 ? 'AM' : 'PM'
+    const h12  = h === 0 ? 12 : h > 12 ? h - 12 : h
+    TIME_SLOTS.push({
+      label: `${String(h12).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ampm}`,
+      value: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
+    })
+  }
+}
 
-  function emit(y, mo, d, h, mi, ap) {
-    onChange({ year: y, month: mo, day: d, hour: h, minute: mi, ampm: ap, iso: buildISO(y, mo, d, h, mi, ap) })
+function DateTimePicker({ label, value, onChange, optional }) {
+  const now        = new Date()
+  const [open, setOpen]       = useState(false)
+  const [viewYear, setViewYear]   = useState(now.getFullYear())
+  const [viewMonth, setViewMonth] = useState(now.getMonth())
+  const [selDate, setSelDate]     = useState(value?.date || null)
+  const [selTime, setSelTime]     = useState(value?.time || '08:00')
+  const timeRef = useRef(null)
+
+  const daysInMonth = getDaysInMonth(viewYear, viewMonth)
+  const firstDay    = new Date(viewYear, viewMonth, 1).getDay()
+  const prevDays    = getDaysInMonth(viewYear, viewMonth - 1)
+
+  function emitChange(date, time) {
+    if (!date) return
+    const [h, m] = time.split(':')
+    const pad = n => String(n).padStart(2, '0')
+    const iso = `${date}T${pad(h)}:${pad(m)}:00+08:00`
+    onChange({ date, time, iso })
   }
 
-  const sel = "rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none flex-1"
-  const ss  = { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
+  function pickDay(y, mo, d) {
+    const dateStr = `${y}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    setSelDate(dateStr)
+    emitChange(dateStr, selTime)
+  }
+
+  function pickTime(t) {
+    setSelTime(t)
+    emitChange(selDate, t)
+  }
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
+    else setViewMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) }
+    else setViewMonth(m => m + 1)
+  }
+
+  const displayDate = selDate
+    ? new Date(selDate + 'T12:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    : null
+  const displayTime = selTime
+    ? TIME_SLOTS.find(t => t.value === selTime)?.label || selTime
+    : null
+
+  // Scroll to selected time on open
+  useEffect(() => {
+    if (open && timeRef.current) {
+      const idx = TIME_SLOTS.findIndex(t => t.value === selTime)
+      if (idx >= 0) timeRef.current.scrollTop = idx * 44
+    }
+  }, [open])
 
   return (
     <div>
-      <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
-      <div className="flex gap-2 mb-2">
-        <select className={sel} style={ss} value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
-          {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
-        </select>
-        <select className={sel} style={ss} value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
-          {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
-        </select>
-        <select className={sel} style={ss} value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
-          {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
-        </select>
-      </div>
-      <div className="flex gap-2">
-        <select className={sel} style={ss} value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
-          {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
-        </select>
-        <select className={sel} style={ss} value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
-          {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
-        </select>
-        <select className={sel} style={{ ...ss, fontWeight: 'bold' }} value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
-          <option value="AM" className="bg-ink-900">AM</option>
-          <option value="PM" className="bg-ink-900">PM</option>
-        </select>
-      </div>
+      <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>
+        {label}
+      </label>
+
+      {/* Trigger button */}
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm text-left transition-all"
+        style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${open ? '#c8ff00' : 'rgba(255,255,255,0.12)'}` }}>
+        <Calendar size={16} style={{ color: open ? '#c8ff00' : 'rgba(255,255,255,0.4)', flexShrink: 0 }} />
+        {selDate ? (
+          <span className="text-white font-medium">{displayDate} · {displayTime}</span>
+        ) : (
+          <span style={{ color: 'rgba(255,255,255,0.35)' }}>{optional ? 'Set end date & time (optional)' : 'Pick date & time'}</span>
+        )}
+        {selDate && (
+          <button type="button" onClick={e => { e.stopPropagation(); setSelDate(null); onChange(null) }}
+            className="ml-auto shrink-0" style={{ color: 'rgba(255,255,255,0.3)' }}>
+            <X size={14} />
+          </button>
+        )}
+      </button>
+
+      {/* Calendar popup */}
+      {open && (
+        <div className="mt-2 rounded-2xl overflow-hidden border border-white/10" style={{ background: '#13131f' }}>
+
+          {/* Month nav */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+            <button type="button" onClick={prevMonth}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold hover:bg-white/10 transition-colors">‹</button>
+            <p className="text-sm font-black text-white uppercase tracking-widest">
+              {MONTHS[viewMonth]} {viewYear}
+            </p>
+            <button type="button" onClick={nextMonth}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold hover:bg-white/10 transition-colors">›</button>
+          </div>
+
+          {/* Day grid */}
+          <div className="px-3 pt-2 pb-3">
+            {/* Weekday headers */}
+            <div className="grid grid-cols-7 mb-1">
+              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                <div key={d} className="text-center text-[9px] font-black uppercase py-1" style={{ color: 'rgba(255,255,255,0.3)' }}>{d}</div>
+              ))}
+            </div>
+            {/* Day cells */}
+            <div className="grid grid-cols-7 gap-0.5">
+              {/* Prev month fillers */}
+              {Array.from({ length: firstDay }).map((_, i) => (
+                <div key={'p'+i} className="aspect-square flex items-center justify-center text-xs rounded-xl"
+                  style={{ color: 'rgba(255,255,255,0.15)' }}>
+                  {prevDays - firstDay + i + 1}
+                </div>
+              ))}
+              {/* Current month days */}
+              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+                const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+                const isSelected = selDate === dateStr
+                const isToday    = dateStr === now.toISOString().split('T')[0]
+                const isPast     = new Date(dateStr) < new Date(now.toISOString().split('T')[0])
+                return (
+                  <button key={d} type="button"
+                    onClick={() => !isPast && pickDay(viewYear, viewMonth, d)}
+                    disabled={isPast}
+                    className="aspect-square flex items-center justify-center text-xs font-bold rounded-xl transition-all"
+                    style={isSelected
+                      ? { background: '#c8ff00', color: '#0a0a0f', fontWeight: 900 }
+                      : isToday
+                      ? { background: 'rgba(200,255,0,0.15)', color: '#c8ff00', border: '1px solid rgba(200,255,0,0.3)' }
+                      : isPast
+                      ? { color: 'rgba(255,255,255,0.2)', cursor: 'not-allowed' }
+                      : { color: 'rgba(255,255,255,0.8)' }
+                    }>
+                    {d}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Time scroll */}
+          <div className="border-t border-white/5">
+            <p className="text-[9px] font-black uppercase tracking-widest px-4 pt-3 pb-2" style={{ color: 'rgba(255,255,255,0.35)' }}>Time</p>
+            <div ref={timeRef} className="overflow-y-auto" style={{ maxHeight: '176px' }}>
+              {TIME_SLOTS.map(t => (
+                <button key={t.value} type="button" onClick={() => pickTime(t.value)}
+                  className="w-full px-4 py-2.5 text-left text-sm font-bold transition-colors"
+                  style={selTime === t.value
+                    ? { background: 'rgba(200,255,0,0.12)', color: '#c8ff00' }
+                    : { color: 'rgba(255,255,255,0.7)' }
+                  }>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Done button */}
+          {selDate && (
+            <div className="px-4 pb-4 pt-3 border-t border-white/5">
+              <button type="button" onClick={() => setOpen(false)}
+                className="w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest"
+                style={{ background: '#c8ff00', color: '#0a0a0f' }}>
+                Done
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -392,7 +525,7 @@ function HostModal({ onClose, onSuccess, user, editEvent }) {
               </div>
             </div>
             <DateTimePicker label="Start Date & Time *" value={dateStart} onChange={setDateStart} />
-            <DateTimePicker label="End Date & Time (optional)" value={dateEnd} onChange={setDateEnd} />
+            <DateTimePicker label="End Date & Time" value={dateEnd} onChange={setDateEnd} optional />
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Max Players</label>
