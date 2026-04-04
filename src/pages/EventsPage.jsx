@@ -3,6 +3,30 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Calendar, MapPin, Users, Clock, Plus, Loader2, X, Navigation, Timer, MoreHorizontal, Pencil, Trash2, Check } from 'lucide-react'
 
+// ── Google Maps ───────────────────────────────────────────────────────────────
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
+
+function useGoogleMaps() {
+  const [ready, setReady] = useState(!!window.google?.maps?.places)
+  useEffect(() => {
+    if (window.google?.maps?.places) { setReady(true); return }
+    const existing = document.getElementById('gmap-script')
+    if (!existing) {
+      const script = document.createElement('script')
+      script.id    = 'gmap-script'
+      script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places`
+      script.async = true
+      script.defer = true
+      document.head.appendChild(script)
+    }
+    const poll = setInterval(() => {
+      if (window.google?.maps?.places) { setReady(true); clearInterval(poll) }
+    }, 100)
+    return () => clearInterval(poll)
+  }, [])
+  return ready
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 const EVENT_TYPES = [
   { id: 'all',        label: 'All'         },
@@ -25,7 +49,7 @@ function buildISO(year, month, day, hour, minute, ampm) {
   return `${year}-${pad(month + 1)}-${pad(day)}T${pad(h)}:${pad(minute)}:00+08:00`
 }
 
-// ── Venue Search ─────────────────────────────────────────────────────────────
+// ── Venue Search (Google Places — identical to LogGamePage) ──────────────────
 function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
   const [query, setQuery]             = useState(venue || '')
   const [suggestions, setSuggestions] = useState([])
@@ -33,89 +57,150 @@ function VenueSearch({ venue, city, onVenueChange, onCityChange }) {
   const [gpsLoading, setGpsLoading]   = useState(false)
   const [focused, setFocused]         = useState(false)
   const debounceRef                   = useRef(null)
-  const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
+  const sessionTokenRef               = useRef(null)
+  const mapsReady                     = useGoogleMaps()
+
+  useEffect(() => {
+    if (mapsReady) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
+  }, [mapsReady])
 
   async function searchPlaces(q) {
-    if (q.length < 2) { setSuggestions([]); return }
+    if (q.length < 2 || !mapsReady) { setSuggestions([]); return }
     setSearching(true)
     try {
-      // No countrycodes restriction — searches globally so local courts/venues are found
-      const res  = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=8&accept-language=en`
-      )
-      const data = await res.json()
-      setSuggestions(data.map(r => {
-        const nameParts = r.display_name.split(',')
+      const result = await window.google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input: q,
+        sessionToken: sessionTokenRef.current,
+        includedRegionCodes: ['ph'],
+      })
+      setSuggestions((result.suggestions || []).map(s => {
+        const p = s.placePrediction
         return {
-          display: nameParts.slice(0, 3).join(',').trim(),
-          full:    r.display_name,
-          name:    r.address?.amenity || r.address?.leisure || r.address?.building ||
-                   r.address?.sports_centre || r.address?.stadium || r.name || nameParts[0].trim(),
-          city:    r.address?.city || r.address?.town || r.address?.municipality ||
-                   r.address?.county || r.address?.state || '',
+          placeId:   p.placeId,
+          name:      p.mainText?.text || p.text?.text || '',
+          secondary: p.secondaryText?.text || '',
         }
       }))
-    } catch { setSuggestions([]) } finally { setSearching(false) }
+    } catch(e) {
+      console.error('Places error', e)
+      setSuggestions([])
+    } finally {
+      setSearching(false)
+    }
   }
 
   function handleInput(e) {
     const val = e.target.value
-    setQuery(val); onVenueChange(val); onCityChange('')
+    setQuery(val)
+    onVenueChange(val)
+    onCityChange('')
     clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => searchPlaces(val), 350)
+    debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
 
-  function pick(s) {
-    setQuery(s.display); onVenueChange(s.name || s.display.split(',')[0].trim()); onCityChange(s.city); setSuggestions([])
+  async function pickSuggestion(s) {
+    setQuery(s.name)
+    onVenueChange(s.name)
+    setSuggestions([])
+    try {
+      const place = new window.google.maps.places.Place({ id: s.placeId, requestedLanguage: 'en' })
+      await place.fetchFields({ fields: ['addressComponents'] })
+      const comps    = place.addressComponents || []
+      const cityComp = comps.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3') || c.types.includes('sublocality_level_1'))
+      onCityChange(cityComp?.longText || cityComp?.long_name || '')
+    } catch {
+      const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
+      onCityChange(parts[0] || '')
+    }
+    if (window.google?.maps?.places) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
   }
 
-  function clear() { setQuery(''); onVenueChange(''); onCityChange(''); setSuggestions([]) }
+  function clearLocation() {
+    setQuery(''); onVenueChange(''); onCityChange(''); setSuggestions([])
+  }
 
-  async function gps() {
+  async function detectGPS() {
     if (!navigator.geolocation) return alert('Geolocation not supported')
     setGpsLoading(true)
-    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
-      try {
-        const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json&accept-language=en`)
-        const data = await res.json()
-        const name = data.address?.amenity || data.address?.leisure || data.address?.building ||
-                     data.address?.sports_centre || data.address?.stadium || ''
-        const c    = data.address?.city || data.address?.town || data.address?.municipality ||
-                     data.address?.county || ''
-        const disp = name ? `${name}, ${c}` : c
-        setQuery(disp); onVenueChange(name || disp); onCityChange(c)
-      } catch { alert('Could not get location') } finally { setGpsLoading(false) }
-    }, () => { setGpsLoading(false); alert('Location access denied') })
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        try {
+          const res  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`)
+          const data = await res.json()
+          const result     = data.results?.[0]
+          if (!result) { alert('Could not get location'); setGpsLoading(false); return }
+          const components = result.address_components
+          const premise    = components.find(c => c.types.includes('premise') || c.types.includes('establishment'))
+          const cityComp   = components.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3'))
+          const name       = premise?.long_name || result.formatted_address.split(',')[0].trim()
+          const cityVal    = cityComp?.long_name || ''
+          setQuery(name)
+          onVenueChange(name)
+          onCityChange(cityVal)
+        } catch {
+          alert('Could not get location')
+        } finally {
+          setGpsLoading(false)
+        }
+      },
+      () => { setGpsLoading(false); alert('Location access denied') }
+    )
   }
 
   return (
     <div>
-      <div className="flex items-center gap-2 w-full rounded-2xl px-4" style={inputStyle}>
-        <MapPin size={14} style={{ color: '#c8ff00' }} className="shrink-0" />
-        <input className="flex-1 py-3.5 text-sm text-white bg-transparent focus:outline-none"
-          placeholder="Search venue or court…" value={query}
-          onChange={handleInput} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => setFocused(false), 200)} autoComplete="off" />
+      <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
+        <MapPin size={15} style={{ color: '#c8ff00', opacity: 0.8 }} className="shrink-0" />
+        <input
+          className="flex-1 py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
+          style={{ color: '#ffffff', caretColor: '#c8ff00' }}
+          placeholder="Search court or venue…"
+          value={query}
+          onChange={handleInput}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 200)}
+          autoComplete="off"
+        />
         {searching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
-        {query && !searching && <button type="button" onClick={clear} style={{ color: 'rgba(255,255,255,0.3)' }}><X size={13} /></button>}
-        <button type="button" onClick={gps} disabled={gpsLoading} style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
-          {gpsLoading ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
+        {query && !searching && (
+          <button type="button" onClick={clearLocation} className="shrink-0 text-white/30 hover:text-white/60">
+            <X size={14} />
+          </button>
+        )}
+        <button type="button" onClick={detectGPS} disabled={gpsLoading} title="Use my location"
+          className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
+          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
+          {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
         </button>
       </div>
+
       {focused && suggestions.length > 0 && (
-        <div className="mt-1 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{ background: '#13131f' }}>
+        <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{ background: '#13131f' }}>
           {suggestions.map((s, i) => (
-            <button key={i} type="button" onMouseDown={() => pick(s)}
+            <button key={i} type="button" onMouseDown={() => pickSuggestion(s)}
               className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors">
-              <MapPin size={12} style={{ color: '#c8ff00' }} className="shrink-0 mt-0.5" />
+              <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
               <div>
-                <p className="text-xs font-bold text-white">{s.display.split(',')[0].trim()}</p>
-                <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.display.split(',').slice(1).join(',').trim()}</p>
+                <p className="text-xs font-bold text-white leading-tight">{s.name}</p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.secondary}</p>
               </div>
             </button>
           ))}
         </div>
       )}
-      {city && <p className="text-[10px] font-black mt-1.5 ml-1" style={{ color: '#c8ff00' }}>📍 {city}</p>}
+
+      {city && (
+        <div className="px-4 pb-2 pt-1 flex items-center gap-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+            style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+            📍 {city}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -136,57 +221,34 @@ function DateTimePicker({ label, value, onChange }) {
     onChange({ year: y, month: mo, day: d, hour: h, minute: mi, ampm: ap, iso: buildISO(y, mo, d, h, mi, ap) })
   }
 
-  const sel = "w-full rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none"
+  const sel = "rounded-xl px-3 py-2.5 text-sm text-white appearance-none focus:outline-none flex-1"
   const ss  = { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }
 
   return (
     <div>
       <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>{label}</label>
-      <div className="grid grid-cols-2 gap-3">
-
-        {/* DATE column */}
-        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-          <p className="text-[9px] font-black uppercase tracking-widest px-3 pt-2.5 pb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Date</p>
-          <div className="px-2 pb-2 space-y-1.5">
-            <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-              value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
-              {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
-            </select>
-            <div className="flex gap-1.5">
-              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
-                {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
-              </select>
-              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
-                {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* TIME column */}
-        <div className="rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-          <p className="text-[9px] font-black uppercase tracking-widest px-3 pt-2.5 pb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Time</p>
-          <div className="px-2 pb-2 space-y-1.5">
-            <div className="flex gap-1.5">
-              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
-                {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
-              </select>
-              <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
-                value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
-                {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
-              </select>
-            </div>
-            <select className={sel} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', fontWeight: 'bold', color: '#c8ff00' }}
-              value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
-              <option value="AM" className="bg-ink-900" style={{ color: '#fff' }}>AM</option>
-              <option value="PM" className="bg-ink-900" style={{ color: '#fff' }}>PM</option>
-            </select>
-          </div>
-        </div>
-
+      <div className="flex gap-2 mb-2">
+        <select className={sel} style={ss} value={month} onChange={e => { const v=+e.target.value; setMonth(v); emit(year,v,day,hour,minute,ampm) }}>
+          {MONTHS.map((m,i) => <option key={i} value={i} className="bg-ink-900">{m}</option>)}
+        </select>
+        <select className={sel} style={ss} value={day} onChange={e => { const v=+e.target.value; setDay(v); emit(year,month,v,hour,minute,ampm) }}>
+          {days.map(d => <option key={d} value={d} className="bg-ink-900">{d}</option>)}
+        </select>
+        <select className={sel} style={ss} value={year} onChange={e => { const v=+e.target.value; setYear(v); emit(v,month,day,hour,minute,ampm) }}>
+          {years.map(y => <option key={y} value={y} className="bg-ink-900">{y}</option>)}
+        </select>
+      </div>
+      <div className="flex gap-2">
+        <select className={sel} style={ss} value={hour} onChange={e => { setHour(e.target.value); emit(year,month,day,e.target.value,minute,ampm) }}>
+          {HOURS.map(h => <option key={h} value={h} className="bg-ink-900">{h}</option>)}
+        </select>
+        <select className={sel} style={ss} value={minute} onChange={e => { setMinute(e.target.value); emit(year,month,day,hour,e.target.value,ampm) }}>
+          {MINUTES.map(m => <option key={m} value={m} className="bg-ink-900">{m}</option>)}
+        </select>
+        <select className={sel} style={{ ...ss, fontWeight: 'bold' }} value={ampm} onChange={e => { setAmpm(e.target.value); emit(year,month,day,hour,minute,e.target.value) }}>
+          <option value="AM" className="bg-ink-900">AM</option>
+          <option value="PM" className="bg-ink-900">PM</option>
+        </select>
       </div>
     </div>
   )
@@ -323,9 +385,11 @@ function HostModal({ onClose, onSuccess, user, editEvent }) {
             </div>
             <div>
               <label className="text-[9px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'rgba(255,255,255,0.45)' }}>Venue / Court</label>
-              <VenueSearch venue={form.venue} city={form.city}
-                onVenueChange={v => setForm(f => ({ ...f, venue: v }))}
-                onCityChange={v  => setForm(f => ({ ...f, city: v  }))} />
+              <div className="rounded-2xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                <VenueSearch venue={form.venue} city={form.city}
+                  onVenueChange={v => setForm(f => ({ ...f, venue: v }))}
+                  onCityChange={v  => setForm(f => ({ ...f, city: v  }))} />
+              </div>
             </div>
             <DateTimePicker label="Start Date & Time *" value={dateStart} onChange={setDateStart} />
             <DateTimePicker label="End Date & Time (optional)" value={dateEnd} onChange={setDateEnd} />
