@@ -296,86 +296,83 @@ function DateTimePicker({ label, value, onChange, optional }) {
         )}
       </button>
 
-      {/* Calendar popup */}
+      {/* Calendar popup — compact side-by-side layout */}
       {open && (
         <div className="mt-2 rounded-2xl overflow-hidden border border-white/10" style={{ background: '#13131f' }}>
-
-          {/* Month nav */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-            <button type="button" onClick={prevMonth}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold hover:bg-white/10 transition-colors">‹</button>
-            <p className="text-sm font-black text-white uppercase tracking-widest">
-              {MONTHS[viewMonth]} {viewYear}
-            </p>
-            <button type="button" onClick={nextMonth}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold hover:bg-white/10 transition-colors">›</button>
-          </div>
-
-          {/* Day grid */}
-          <div className="px-3 pt-2 pb-3">
-            {/* Weekday headers */}
-            <div className="grid grid-cols-7 mb-1">
-              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className="text-center text-[9px] font-black uppercase py-1" style={{ color: 'rgba(255,255,255,0.3)' }}>{d}</div>
-              ))}
-            </div>
-            {/* Day cells */}
-            <div className="grid grid-cols-7 gap-0.5">
-              {/* Prev month fillers */}
-              {Array.from({ length: firstDay }).map((_, i) => (
-                <div key={'p'+i} className="aspect-square flex items-center justify-center text-xs rounded-xl"
-                  style={{ color: 'rgba(255,255,255,0.15)' }}>
-                  {prevDays - firstDay + i + 1}
+          <div className="flex">
+            {/* Left: Calendar */}
+            <div className="flex-1 border-r border-white/5">
+              {/* Month nav */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                <button type="button" onClick={prevMonth}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-white hover:bg-white/10 transition-colors text-sm">‹</button>
+                <p className="text-[10px] font-black text-white uppercase tracking-widest">
+                  {MONTHS[viewMonth].slice(0,3)} {viewYear}
+                </p>
+                <button type="button" onClick={nextMonth}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-white hover:bg-white/10 transition-colors text-sm">›</button>
+              </div>
+              {/* Day grid */}
+              <div className="px-2 pt-1.5 pb-2">
+                <div className="grid grid-cols-7 mb-0.5">
+                  {['S','M','T','W','T','F','S'].map((d,i) => (
+                    <div key={i} className="text-center py-0.5" style={{ fontSize: '9px', fontWeight: 900, color: 'rgba(255,255,255,0.3)' }}>{d}</div>
+                  ))}
                 </div>
-              ))}
-              {/* Current month days */}
-              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
-                const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-                const isSelected = selDate === dateStr
-                const isToday    = dateStr === now.toISOString().split('T')[0]
-                const isPast     = new Date(dateStr) < new Date(now.toISOString().split('T')[0])
-                return (
-                  <button key={d} type="button"
-                    onClick={() => !isPast && pickDay(viewYear, viewMonth, d)}
-                    disabled={isPast}
-                    className="aspect-square flex items-center justify-center text-xs font-bold rounded-xl transition-all"
-                    style={isSelected
-                      ? { background: '#c8ff00', color: '#0a0a0f', fontWeight: 900 }
-                      : isToday
-                      ? { background: 'rgba(200,255,0,0.15)', color: '#c8ff00', border: '1px solid rgba(200,255,0,0.3)' }
-                      : isPast
-                      ? { color: 'rgba(255,255,255,0.2)', cursor: 'not-allowed' }
-                      : { color: 'rgba(255,255,255,0.8)' }
-                    }>
-                    {d}
-                  </button>
-                )
-              })}
+                <div className="grid grid-cols-7 gap-px">
+                  {Array.from({ length: firstDay }).map((_, i) => (
+                    <div key={'p'+i} className="flex items-center justify-center rounded" style={{ fontSize: '10px', color: 'rgba(255,255,255,0.12)', aspectRatio: '1' }}>
+                      {prevDays - firstDay + i + 1}
+                    </div>
+                  ))}
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+                    const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+                    const isSelected = selDate === dateStr
+                    const isToday    = dateStr === now.toISOString().split('T')[0]
+                    const isPast     = new Date(dateStr) < new Date(now.toISOString().split('T')[0])
+                    return (
+                      <button key={d} type="button"
+                        onClick={() => !isPast && pickDay(viewYear, viewMonth, d)}
+                        disabled={isPast}
+                        className="flex items-center justify-center rounded transition-all"
+                        style={{ aspectRatio: '1', fontSize: '11px', fontWeight: isSelected ? 900 : 500,
+                          ...(isSelected ? { background: '#c8ff00', color: '#0a0a0f' }
+                            : isToday ? { background: 'rgba(200,255,0,0.15)', color: '#c8ff00' }
+                            : isPast  ? { color: 'rgba(255,255,255,0.18)', cursor: 'not-allowed' }
+                            : { color: 'rgba(255,255,255,0.8)' })
+                        }}>
+                        {d}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Time scroll */}
-          <div className="border-t border-white/5">
-            <p className="text-[9px] font-black uppercase tracking-widest px-4 pt-3 pb-2" style={{ color: 'rgba(255,255,255,0.35)' }}>Time</p>
-            <div ref={timeRef} className="overflow-y-auto" style={{ maxHeight: '176px' }}>
-              {TIME_SLOTS.map(t => (
-                <button key={t.value} type="button" onClick={() => pickTime(t.value)}
-                  className="w-full px-4 py-2.5 text-left text-sm font-bold transition-colors"
-                  style={selTime === t.value
-                    ? { background: 'rgba(200,255,0,0.12)', color: '#c8ff00' }
-                    : { color: 'rgba(255,255,255,0.7)' }
-                  }>
-                  {t.label}
-                </button>
-              ))}
+            {/* Right: Time scroll */}
+            <div style={{ width: '90px' }}>
+              <p className="text-[9px] font-black uppercase tracking-widest px-2 pt-2 pb-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Time</p>
+              <div ref={timeRef} className="overflow-y-auto" style={{ maxHeight: '168px' }}>
+                {TIME_SLOTS.map(t => (
+                  <button key={t.value} type="button" onClick={() => pickTime(t.value)}
+                    className="w-full px-2 py-1.5 text-left transition-colors"
+                    style={{ fontSize: '11px', fontWeight: 700,
+                      ...(selTime === t.value
+                        ? { background: 'rgba(200,255,0,0.12)', color: '#c8ff00' }
+                        : { color: 'rgba(255,255,255,0.6)' })
+                    }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Done button */}
           {selDate && (
-            <div className="px-4 pb-4 pt-3 border-t border-white/5">
+            <div className="px-3 pb-3 pt-2 border-t border-white/5">
               <button type="button" onClick={() => setOpen(false)}
-                className="w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest"
+                className="w-full py-2 rounded-xl text-xs font-black uppercase tracking-widest"
                 style={{ background: '#c8ff00', color: '#0a0a0f' }}>
                 Done
               </button>
