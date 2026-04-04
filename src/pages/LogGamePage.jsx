@@ -21,7 +21,6 @@ function useGoogleMaps() {
       script.defer = true
       document.head.appendChild(script)
     }
-    // Poll until places is available
     const poll = setInterval(() => {
       if (window.google?.maps?.places) {
         setReady(true)
@@ -41,7 +40,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   const [focused, setFocused]         = useState(false)
   const debounceRef                   = useRef(null)
   const sessionTokenRef               = useRef(null)
-  const autocompleteRef               = useRef(null)
   const mapsReady                     = useGoogleMaps()
 
   useEffect(() => {
@@ -81,7 +79,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     onCourtChange(val)
     onCityChange('')
     onProvinceChange('')
-    onProvinceChange('')
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
@@ -91,7 +88,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     onCourtChange(s.name)
     setSuggestions([])
 
-    // Use Place Details to get accurate city + province from address_components
     try {
       const place = new window.google.maps.places.Place({
         id: s.placeId,
@@ -104,13 +100,11 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       onCityChange(cityComp?.longText || cityComp?.long_name || '')
       onProvinceChange(provinceComp?.longText || provinceComp?.long_name || '')
     } catch {
-      // Fallback to parsing secondary text
       const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
       onCityChange(parts[0] || '')
       onProvinceChange(parts[1] || '')
     }
 
-    // Refresh session token after selection
     if (window.google?.maps?.places) {
       sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
     }
@@ -135,7 +129,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           )
           const data = await res.json()
           if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
-          // Try each result until we find a useful name
           let name = '', cityVal = '', provinceVal = ''
           for (const result of data.results) {
             const c = result.address_components
@@ -172,7 +165,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
 
   return (
     <div>
-      {/* Court/Location search input row */}
       <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
         <MapPin size={15} style={{ color: '#c8ff00', opacity: 0.8 }} className="shrink-0" />
         <input
@@ -195,15 +187,12 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           type="button"
           onClick={detectGPS}
           disabled={gpsLoading}
-          title="Use my location"
           className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
           style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
         >
           {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
         </button>
       </div>
-
-      {/* Suggestions dropdown */}
       {focused && suggestions.length > 0 && (
         <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
           style={{ background: '#13131f' }}>
@@ -223,8 +212,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           ))}
         </div>
       )}
-
-      {/* Selected city + province badge */}
       {(city || province) && (
         <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
           {city && (
@@ -280,7 +267,7 @@ export default function LogGamePage() {
   async function searchOpponents(query) {
     setIsSearching(true)
     const { data } = await supabase
-      .from('users')
+      .from('profiles')
       .select('id, username, city')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
@@ -322,7 +309,6 @@ export default function LogGamePage() {
     e.preventDefault()
     if (loading || !user) return
 
-    // ── Integrity Rule: wins require a tagged opponent ──────────────
     if (formData.result === 'win' && !taggedUser) {
       alert('⚠️ To record a WIN, you must tag your opponent. This keeps the rankings fair.')
       return
@@ -335,6 +321,7 @@ export default function LogGamePage() {
         ? await uploadMedia()
         : { urls: [], types: [] }
 
+      // 1. Insert YOUR record
       const { data: game, error: gameError } = await supabase.from('games').insert([{
         user_id:            user.id,
         sport:              formData.sport,
@@ -351,9 +338,9 @@ export default function LogGamePage() {
 
       if (gameError) throw gameError
 
-      // ── Option A: Auto-create loss record for tagged opponent ──────
+      // 2. Insert OPPONENT'S record (The Sync Fix)
       if (taggedUser && formData.result === 'win') {
-        await supabase.from('games').insert([{
+        const { error: opponentError } = await supabase.from('games').insert([{
           user_id:            taggedUser.id,
           sport:              formData.sport,
           court_name:         formData.court_name,
@@ -362,10 +349,11 @@ export default function LogGamePage() {
           result:             'loss',
           score:              formData.score,
           intensity:          formData.intensity,
-          opponent_name:      user.user_metadata?.full_name || user.email?.split('@')[0] || 'opponent',
+          opponent_name:      profile?.username || user.email?.split('@')[0] || 'opponent',
           tagged_opponent_id: user.id,
           created_at:         new Date().toISOString(),
         }])
+        if (opponentError) console.error('Opponent sync error:', opponentError.message)
       }
 
       const sport    = SPORTS.find(s => s.id === formData.sport)
@@ -390,7 +378,6 @@ export default function LogGamePage() {
 
       const myUsername = profile?.username || user.email?.split('@')[0] || 'user'
 
-      // Notify tagged opponent that they were tagged in a match
       if (taggedUser) {
         await sendNotification({
           userId: taggedUser.id,
@@ -401,7 +388,6 @@ export default function LogGamePage() {
         })
       }
 
-      // Notify any @mentions in custom caption
       const caption = formData.content.trim()
       if (caption.includes('@') && newPost) {
         await notifyMentions({
@@ -421,8 +407,6 @@ export default function LogGamePage() {
 
   return (
     <div className="min-h-screen pb-32" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
-
-      {/* Header */}
       <div className="px-5 pt-12 pb-6">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-1.5 h-8 rounded-full" style={{ background: '#c8ff00' }} />
@@ -434,8 +418,6 @@ export default function LogGamePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 space-y-5">
-
-        {/* Sport Selector */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {SPORTS.map(s => (
             <button
@@ -454,7 +436,6 @@ export default function LogGamePage() {
           ))}
         </div>
 
-        {/* Location Card */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
@@ -469,13 +450,10 @@ export default function LogGamePage() {
           />
         </div>
 
-        {/* Match Details Card */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
           </div>
-
-          {/* Opponent search */}
           <div className="relative">
             <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
               <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
@@ -510,7 +488,6 @@ export default function LogGamePage() {
             )}
           </div>
 
-          {/* Score */}
           <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
             <Search size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
             <input
@@ -522,7 +499,6 @@ export default function LogGamePage() {
             />
           </div>
 
-          {/* Caption */}
           <div className="px-4 py-3">
             <textarea
               className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
@@ -535,7 +511,6 @@ export default function LogGamePage() {
           </div>
         </div>
 
-        {/* Win / Loss */}
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
           <div className="grid grid-cols-2 gap-3">
@@ -556,7 +531,6 @@ export default function LogGamePage() {
               </button>
             ))}
           </div>
-          {/* Hint: wins require tagged opponent */}
           {formData.result === 'win' && !taggedUser && (
             <div className="mt-3 px-4 py-2.5 rounded-2xl flex items-center gap-2"
               style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
@@ -568,7 +542,6 @@ export default function LogGamePage() {
           )}
         </div>
 
-        {/* Intensity */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
@@ -598,7 +571,6 @@ export default function LogGamePage() {
           </div>
         </div>
 
-        {/* Media Upload */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
           {mediaPreviews.length > 0 && (
@@ -633,7 +605,6 @@ export default function LogGamePage() {
           <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
         </div>
 
-        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
