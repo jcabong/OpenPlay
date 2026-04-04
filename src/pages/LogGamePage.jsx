@@ -16,7 +16,7 @@ function useGoogleMaps() {
     if (!existing) {
       const script = document.createElement('script')
       script.id    = 'gmap-script'
-      script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places`
+      script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places&loading=async`
       script.async = true
       script.defer = true
       document.head.appendChild(script)
@@ -371,6 +371,7 @@ export default function LogGamePage() {
         ? await uploadMedia()
         : { urls: [], types: [] }
 
+      // ========== 1. INSERT YOUR GAME ==========
       const { data: game, error: gameError } = await supabase.from('games').insert([{
         user_id:            user.id,
         sport:              formData.sport,
@@ -385,10 +386,18 @@ export default function LogGamePage() {
         created_at:         new Date().toISOString(),
       }]).select().single()
 
-      if (gameError) throw gameError
+      if (gameError) {
+        console.error('❌ Game insert error:', gameError)
+        throw gameError
+      }
+      console.log('✅ Your game recorded:', { id: game.id, result: game.result, opponent: game.opponent_name })
 
+      // ========== 2. INSERT OPPONENT'S GAME (CRITICAL FIX) ==========
+      let opponentGame = null
       if (taggedUser && formData.result === 'win') {
-        const { error: opponentError } = await supabase.from('games').insert([{
+        console.log('🔄 Recording opponent loss for:', taggedUser.username)
+        
+        const opponentGameData = {
           user_id:            taggedUser.id,
           sport:              formData.sport,
           court_name:         formData.court_name,
@@ -400,10 +409,28 @@ export default function LogGamePage() {
           opponent_name:      profile?.username || 'opponent',
           tagged_opponent_id: user.id,
           created_at:         new Date().toISOString(),
-        }])
-        if (opponentError) console.error('Opponent sync error:', opponentError.message)
+        }
+        
+        console.log('📤 Opponent game data:', opponentGameData)
+        
+        const { data: oppData, error: opponentError } = await supabase
+          .from('games')
+          .insert([opponentGameData])
+          .select()
+        
+        if (opponentError) {
+          console.error('❌ Opponent sync FAILED:', opponentError)
+          console.error('Error details:', opponentError.message, opponentError.details, opponentError.hint)
+          alert('⚠️ Match recorded but opponent stats failed to update. The match has been saved but opponent rankings may be incorrect.')
+        } else {
+          opponentGame = oppData[0]
+          console.log('✅ Opponent loss recorded:', { id: opponentGame.id, result: opponentGame.result })
+        }
+      } else if (taggedUser && formData.result === 'loss') {
+        console.log('ℹ️ You recorded a loss, no opponent sync needed')
       }
 
+      // ========== 3. CREATE POST ==========
       const sport    = SPORTS.find(s => s.id === formData.sport)
       const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
       const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
@@ -422,18 +449,24 @@ export default function LogGamePage() {
         inserted_at:   new Date().toISOString(),
       }]).select().single()
 
-      if (postError) console.warn('Feed post failed:', postError.message)
+      if (postError) {
+        console.warn('⚠️ Feed post failed:', postError.message)
+      } else {
+        console.log('✅ Post created:', newPost.id)
+      }
 
+      // ========== 4. SEND NOTIFICATIONS ==========
       const myUsername = profile?.username || 'user'
 
-      if (taggedUser) {
+      if (taggedUser && formData.result === 'win') {
         await sendNotification({
           userId: taggedUser.id,
           type:   'tagged_match',
           title:  `@${myUsername} recorded a match against you`,
           body:   `${sport?.emoji} ${sport?.label} · A LOSS has been recorded on your profile. Score: ${formData.score || '—'}`,
           data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
-        })
+        }).catch(err => console.error('Notification error:', err))
+        console.log('📧 Notification sent to:', taggedUser.username)
       }
 
       const caption = formData.content.trim()
@@ -442,11 +475,16 @@ export default function LogGamePage() {
           text:     caption,
           fromUser: { id: user.id, username: myUsername },
           postId:   newPost.id,
-        })
+        }).catch(err => console.error('Mention notification error:', err))
       }
 
+      // ========== 5. SUCCESS ==========
+      const syncStatus = opponentGame ? '✅ Opponent stats updated' : (taggedUser && formData.result === 'win' ? '⚠️ Opponent stats failed to update' : 'No opponent to sync')
+      alert(`✅ Match recorded successfully!\n\n${syncStatus}`)
       navigate('/')
+      
     } catch (err) {
+      console.error('❌ Submit error:', err)
       alert('Error saving match: ' + err.message)
     } finally {
       setLoading(false)
