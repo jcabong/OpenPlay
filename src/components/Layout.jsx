@@ -1,7 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Settings, Menu, X } from 'lucide-react'
+import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { useNotifications } from '../hooks/useNotifications'
+import NotificationsPanel from './NotificationsPanel'
 
 const navItems = [
   { to: '/',        label: 'Feed',      Icon: Home,       end: true },
@@ -14,7 +16,9 @@ const navItems = [
 export default function Layout({ children }) {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen]   = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const { notifications, unreadCount, markAllRead, markOneRead } = useNotifications(user?.id)
 
   async function handleSignOut() {
     await signOut()
@@ -77,8 +81,28 @@ export default function Layout({ children }) {
             ))}
           </nav>
 
-          {/* Bottom: user + sign out */}
+          {/* Bottom: notifications + user + sign out */}
           <div className="px-3 py-4 border-t space-y-1" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+            {/* Bell */}
+            <button onClick={() => setShowNotifications(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-white/5 transition-all">
+              <div className="relative">
+                <Bell size={20} style={{ color: 'rgba(255,255,255,0.5)' }} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black"
+                    style={{ background: '#c8ff00', color: '#0a0a0f' }}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-sm font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>Notifications</span>
+              {unreadCount > 0 && (
+                <span className="ml-auto text-[10px] font-black px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(200,255,0,0.15)', color: '#c8ff00' }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
             <NavLink
               to="/profile"
               className="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-white/5 transition-all"
@@ -141,13 +165,27 @@ export default function Layout({ children }) {
               style={{ background: '#c8ff00', color: '#0a0a0f' }}>OP</div>
             <span className="font-black text-white tracking-tight">OpenPlay</span>
           </div>
-          <button
-            onClick={() => setMobileMenuOpen(true)}
-            className="p-2 rounded-xl"
-            style={{ color: 'rgba(255,255,255,0.5)' }}
-          >
-            <Menu size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Bell */}
+            <button onClick={() => setShowNotifications(true)}
+              className="relative p-2 rounded-xl"
+              style={{ color: 'rgba(255,255,255,0.5)' }}>
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black"
+                  style={{ background: '#c8ff00', color: '#0a0a0f' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="p-2 rounded-xl"
+              style={{ color: 'rgba(255,255,255,0.5)' }}
+            >
+              <Menu size={20} />
+            </button>
+          </div>
         </header>
 
         {/* Mobile slide-out menu */}
@@ -264,5 +302,16 @@ export default function Layout({ children }) {
         </nav>
       </div>
     </div>
+
+    {/* Notifications Panel — shared across mobile + desktop */}
+    {showNotifications && (
+      <NotificationsPanel
+        notifications={notifications}
+        onMarkAllRead={markAllRead}
+        onMarkOneRead={markOneRead}
+        onClose={() => setShowNotifications(false)}
+      />
+    )}
+  </div>
   )
 }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { notifyMentions } from '../hooks/useNotifications'
 
 // Render text with clickable @mentions
 function RichText({ text }) {
@@ -99,7 +100,7 @@ function MentionInput({ value, onChange, submitting }) {
 }
 
 export default function PostCard({ post, onRefresh }) {
-  const { user }                          = useAuth()
+  const { user, profile }                 = useAuth()
   const [showComments, setShowComments]   = useState(false)
   const [newComment, setNewComment]       = useState('')
   const [submitting, setSubmitting]       = useState(false)
@@ -167,11 +168,22 @@ export default function PostCard({ post, onRefresh }) {
     e.preventDefault()
     if (!newComment.trim() || !user) return
     setSubmitting(true)
-    await supabase.from('comments').insert([{
+    const { data: comment } = await supabase.from('comments').insert([{
       post_id: post.id,
       user_id: user.id,
       content: newComment.trim(),
-    }])
+    }]).select().single()
+
+    // Notify @mentions in comment
+    if (newComment.includes('@')) {
+      await notifyMentions({
+        text:      newComment.trim(),
+        fromUser:  { id: user.id, username: profile?.username || user.email?.split('@')[0] || 'user' },
+        postId:    post.id,
+        commentId: comment?.id || null,
+      })
+    }
+
     setNewComment('')
     setSubmitting(false)
     onRefresh?.()
