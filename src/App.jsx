@@ -13,6 +13,7 @@ import LeaderboardPage    from './pages/LeaderboardPage'
 import EventsPage         from './pages/EventsPage'
 import ProfilePage        from './pages/ProfilePage'
 import PublicProfilePage  from './pages/PublicProfilePage'
+import AdminPage          from './pages/AdminPage'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -64,6 +65,7 @@ function ProtectedRoutes() {
         <Route path="/ranks"           element={<LeaderboardPage />} />
         <Route path="/events"          element={<EventsPage />} />
         <Route path="/profile"         element={<ProfilePage />} />
+        <Route path="/admin"           element={<AdminPage />} />
         <Route path="/user/:username"  element={<PublicProfilePage />} />
         <Route path="*"                element={<Navigate to="/" replace />} />
       </Routes>

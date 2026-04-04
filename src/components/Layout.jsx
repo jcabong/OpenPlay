@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield } from 'lucide-react'  // ✅ Added Shield
-import { useState } from 'react'
+import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useNotifications } from '../hooks/useNotifications'
+import { supabase } from '../lib/supabase'
 import NotificationsPanel from './NotificationsPanel'
 
 const navItems = [
@@ -18,7 +19,23 @@ export default function Layout({ children }) {
   const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen]   = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const { notifications, unreadCount, markAllRead, markOneRead } = useNotifications(user?.id)
+
+  // Check if user is admin
+  useEffect(() => {
+    async function checkAdmin() {
+      if (user) {
+        const { data } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+        setIsAdmin(data?.role === 'admin')
+      }
+    }
+    checkAdmin()
+  }, [user])
 
   async function handleSignOut() {
     await signOut()
@@ -29,9 +46,6 @@ export default function Layout({ children }) {
   const initial = username.charAt(0).toUpperCase()
   const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
   const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
-  
-  // Check if user is admin
-  const isAdmin = profile?.role === 'admin'
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
@@ -83,7 +97,7 @@ export default function Layout({ children }) {
               </NavLink>
             ))}
             
-            {/* ✅ Admin Link - Only shows for admins */}
+            {/* Admin Link - Only shows for admins */}
             {isAdmin && (
               <NavLink
                 to="/admin"
@@ -272,7 +286,7 @@ export default function Layout({ children }) {
                   </NavLink>
                 ))}
                 
-                {/* ✅ Admin Link - Only shows for admins on mobile */}
+                {/* Admin Link - Only shows for admins on mobile */}
                 {isAdmin && (
                   <NavLink
                     to="/admin"
