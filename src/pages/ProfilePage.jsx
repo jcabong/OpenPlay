@@ -1,8 +1,131 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useNavigate, Link } from 'react-router-dom'
-import { MapPin, Calendar, Edit2, Save, X, Loader2 } from 'lucide-react'
+import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check } from 'lucide-react'
+
+const DEFAULT_AVATARS = [
+  { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
+  { id: 'avatar-2', src: '/avatars/avatar-2.jpeg', label: 'Badminton F' },
+  { id: 'avatar-3', src: '/avatars/avatar-3.jpeg', label: 'Tennis M'    },
+  { id: 'avatar-4', src: '/avatars/avatar-4.jpeg', label: 'Tennis F'    },
+  { id: 'avatar-5', src: '/avatars/avatar-5.jpeg', label: 'Pickleball M'},
+  { id: 'avatar-6', src: '/avatars/avatar-6.jpeg', label: 'Pickleball F'},
+  { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
+  { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
+]
+
+function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
+  const [selected, setSelected]       = useState(currentUrl || null)
+  const [selectedType, setSelectedType] = useState(currentType || 'initials')
+  const [uploading, setUploading]     = useState(false)
+  const [saving, setSaving]           = useState(false)
+  const fileRef                       = useRef(null)
+  const { user }                      = useAuth()
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const ext  = file.name.split('.').pop()
+    const path = `avatars/${user.id}-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('openplay-media').upload(path, file, { upsert: true })
+    if (!error) {
+      const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
+      setSelected(publicUrl)
+      setSelectedType('custom')
+    }
+    setUploading(false)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    await onSave({ url: selected, type: selectedType })
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
+      <div className="w-full rounded-t-[2.5rem] border-t border-white/10 p-6 max-h-[90vh] overflow-y-auto" style={{ background: '#0f0f1a' }}>
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-black italic uppercase text-white">Choose Avatar</h2>
+          <button onClick={onClose} className="p-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
+            <X size={18} className="text-white" />
+          </button>
+        </div>
+
+        {/* Current preview */}
+        <div className="flex justify-center mb-5">
+          {selected && selectedType !== 'initials' ? (
+            <img src={selected} alt="avatar" className="w-24 h-24 rounded-[1.5rem] object-cover border-2 border-accent" />
+          ) : (
+            <div className="w-24 h-24 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl border-2 border-accent">
+              {(user?.email || 'U').charAt(0).toUpperCase()}
+            </div>
+          )}
+        </div>
+
+        {/* Upload custom photo */}
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl mb-5 text-sm font-black uppercase tracking-widest border-2 border-dashed transition-all"
+          style={{ borderColor: 'rgba(200,255,0,0.4)', color: '#c8ff00' }}
+        >
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+          {uploading ? 'Uploading...' : 'Upload My Photo'}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+
+        {/* Default avatars grid */}
+        <p className="text-[9px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
+          Default Avatars
+        </p>
+        <div className="grid grid-cols-4 gap-3 mb-6">
+          {DEFAULT_AVATARS.map(av => {
+            const isSelected = selected === av.src && selectedType === 'default'
+            return (
+              <button key={av.id} type="button"
+                onClick={() => { setSelected(av.src); setSelectedType('default') }}
+                className="relative flex flex-col items-center gap-1.5">
+                <div className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition-all ${isSelected ? 'border-accent' : 'border-white/10'}`}>
+                  <img src={av.src} alt={av.label} className="w-full h-full object-cover" />
+                </div>
+                {isSelected && (
+                  <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
+                    <Check size={11} className="text-ink-900" />
+                  </div>
+                )}
+                <span className="text-[9px] text-ink-500 font-bold text-center leading-tight">{av.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Save button */}
+        <button
+          onClick={handleSave}
+          disabled={saving || !selected}
+          className="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm disabled:opacity-50"
+          style={{ background: '#c8ff00', color: '#0a0a0f' }}
+        >
+          {saving ? 'Saving...' : 'Save Avatar'}
+        </button>
+      </div>
+    </div>
+
+      {showAvatarPicker && (
+        <AvatarPicker
+          currentUrl={avatarUrl}
+          currentType={avatarType}
+          onSave={saveAvatar}
+          onClose={() => setShowAvatarPicker(false)}
+        />
+      )}
+    </div>
+  )
+}
 
 function MatchRow({ game }) {
   const sport = SPORTS.find(s => s.id === game.sport)
@@ -52,6 +175,9 @@ export default function ProfilePage() {
     region: '',
   })
   const [saving, setSaving] = useState(false)
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+  const [avatarUrl, setAvatarUrl]   = useState(profile?.avatar_url || null)
+  const [avatarType, setAvatarType] = useState(profile?.avatar_type || 'initials')
 
   useEffect(() => {
     if (!user) {
@@ -66,6 +192,8 @@ export default function ProfilePage() {
         city: profile.city || '',
         region: profile.region || '',
       })
+      setAvatarUrl(profile.avatar_url || null)
+      setAvatarType(profile.avatar_type || 'initials')
     }
   }, [user, profile])
 
@@ -80,6 +208,17 @@ export default function ProfilePage() {
     
     setGames(data || [])
     setLoading(false)
+  }
+
+  async function saveAvatar({ url, type }) {
+    const { error } = await supabase.from('users').update({
+      avatar_url:  url,
+      avatar_type: type,
+    }).eq('id', user.id)
+    if (!error) {
+      setAvatarUrl(url)
+      setAvatarType(type)
+    }
   }
 
   async function handleSaveProfile() {
@@ -125,8 +264,20 @@ export default function ProfilePage() {
       </div>
 
       <div className="px-5 pb-4">
-        <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl mb-3">
-          {initial}
+        <div className="relative w-20 h-20 mb-3">
+          {avatarUrl && avatarType !== 'initials' ? (
+            <img src={avatarUrl} alt="avatar" className="w-20 h-20 rounded-[1.5rem] object-cover" />
+          ) : (
+            <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl">
+              {initial}
+            </div>
+          )}
+          <button
+            onClick={() => setShowAvatarPicker(true)}
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center border-2 border-ink-900"
+            style={{ background: '#c8ff00' }}>
+            <Camera size={13} className="text-ink-900" />
+          </button>
         </div>
         
         {!editing ? (
