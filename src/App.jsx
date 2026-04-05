@@ -7,6 +7,7 @@ import Layout             from './components/Layout'
 import LoadingScreen      from './components/LoadingScreen'
 import UsernameSetup      from './components/UsernameSetup'
 import LoginPage          from './pages/LoginPage'
+import AuthCallback       from './pages/AuthCallback'
 import FeedPage           from './pages/FeedPage'
 import LogGamePage        from './pages/LogGamePage'
 import LeaderboardPage    from './pages/LeaderboardPage'
@@ -100,7 +101,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/*"     element={<ProtectedRoutes />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/*" element={<ProtectedRoutes />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
