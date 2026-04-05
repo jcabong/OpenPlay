@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight, Twitter, Facebook } from 'lucide-react'
+import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight, Twitter, Facebook, Maximize2 } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { notifyMentions } from '../hooks/useNotifications'
@@ -246,6 +246,8 @@ export default function PostCard({ post, onRefresh }) {
   const [editContent, setEditContent]     = useState(post.content || '')
   const [saving, setSaving]               = useState(false)
   const [showShareMenu, setShowShareMenu] = useState(false)
+  const [showMediaModal, setShowMediaModal] = useState(false)
+  const [selectedMedia, setSelectedMedia] = useState(null)
   const menuRef                           = useRef(null)
   const shareMenuRef                      = useRef(null)
 
@@ -257,6 +259,11 @@ export default function PostCard({ post, onRefresh }) {
   const displayName = post.author?.display_name || username
   const hasAvatar   = post.author?.avatar_url && post.author?.avatar_type !== 'initials'
   const isOwner     = user?.id === post.author_id
+
+  const hasMedia = post.media_urls?.length > 0
+  const firstMedia = hasMedia ? post.media_urls[0] : null
+  const firstMediaType = hasMedia ? post.media_types?.[0] : null
+  const isVideo = firstMediaType === 'video'
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -359,6 +366,11 @@ export default function PostCard({ post, onRefresh }) {
     setShowShareMenu(false)
   }
 
+  const openMediaModal = (url) => {
+    setSelectedMedia(url)
+    setShowMediaModal(true)
+  }
+
   return (
     <article className="glass rounded-[2.5rem] p-5 border border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent animate-slide-up">
 
@@ -442,15 +454,32 @@ export default function PostCard({ post, onRefresh }) {
         )
       )}
 
-      {/* Media */}
-      {post.media_urls?.length > 0 && (
+      {/* Media - Video with play button overlay */}
+      {hasMedia && (
         <div className="mb-4 rounded-2xl overflow-hidden bg-ink-800">
-          {post.media_types?.[0] === 'video' ? (
-            <video src={post.media_urls[0]} className="w-full aspect-video object-cover" controls />
+          {isVideo ? (
+            <div className="relative cursor-pointer group" onClick={() => openMediaModal(firstMedia)}>
+              <video 
+                src={firstMedia} 
+                className="w-full aspect-video object-cover"
+                preload="metadata"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-all">
+                <div className="w-14 h-14 rounded-full bg-accent/90 flex items-center justify-center transform transition-transform group-hover:scale-110">
+                  <svg className="w-7 h-7 text-ink-900 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                </div>
+              </div>
+              <div className="absolute bottom-2 right-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] text-white flex items-center gap-1">
+                <Maximize2 size={10} />
+                <span>Fullscreen</span>
+              </div>
+            </div>
           ) : (
             <div className={`grid gap-0.5 ${post.media_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {post.media_urls.slice(0, 4).map((url, i) => (
-                <div key={i} className="relative aspect-square">
+                <div key={i} className="relative aspect-square cursor-pointer" onClick={() => openMediaModal(url)}>
                   <img src={url} alt="" className="w-full h-full object-cover" />
                   {i === 3 && post.media_urls.length > 4 && (
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold text-lg">
@@ -565,6 +594,38 @@ export default function PostCard({ post, onRefresh }) {
             <form onSubmit={submitComment} className="flex-1">
               <MentionInput value={newComment} onChange={setNewComment} submitting={submitting} />
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Media Fullscreen Modal */}
+      {showMediaModal && selectedMedia && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+          onClick={() => setShowMediaModal(false)}
+        >
+          <div className="relative max-w-full max-h-full p-4">
+            <button 
+              className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
+              onClick={() => setShowMediaModal(false)}
+            >
+              <X size={24} />
+            </button>
+            {isVideo ? (
+              <video 
+                src={selectedMedia} 
+                className="max-w-full max-h-[90vh]"
+                controls 
+                autoPlay
+                playsInline
+              />
+            ) : (
+              <img 
+                src={selectedMedia} 
+                className="max-w-full max-h-[90vh] object-contain" 
+                alt="Fullscreen media"
+              />
+            )}
           </div>
         </div>
       )}
