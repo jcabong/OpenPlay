@@ -255,9 +255,17 @@ export default function Layout({ children }) {
       {/* ── MOBILE LAYOUT ── */}
       <div className="lg:hidden">
 
-        {/* Mobile top bar */}
-        <header className="fixed top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-3 border-b"
-          style={{ background: 'rgba(10,10,15,0.95)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.07)' }}>
+        {/* Mobile top bar with safe area insets */}
+        <header className="fixed top-0 inset-x-0 z-40 flex items-center justify-between border-b"
+          style={{ 
+            background: 'rgba(10,10,15,0.95)', 
+            backdropFilter: 'blur(20px)', 
+            borderColor: 'rgba(255,255,255,0.07)',
+            paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+            paddingRight: 'max(1rem, env(safe-area-inset-right))',
+            paddingBottom: '0.75rem',
+          }}>
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs"
               style={{ background: '#c8ff00', color: '#0a0a0f' }}>OP</div>
@@ -404,14 +412,19 @@ export default function Layout({ children }) {
           </div>
         )}
 
-        {/* Mobile main content */}
-        <main className="pt-16 pb-20">
+        {/* Mobile main content with safe area top padding */}
+        <main className="pt-16 pb-20" style={{ paddingTop: 'calc(4rem + env(safe-area-inset-top))' }}>
           {children}
         </main>
 
-        {/* Mobile bottom nav - filters out coming soon items */}
+        {/* Mobile bottom nav with safe area bottom padding */}
         <nav className="fixed bottom-0 inset-x-0 z-40 border-t"
-          style={{ background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.07)' }}>
+          style={{ 
+            background: 'rgba(10,10,15,0.97)', 
+            backdropFilter: 'blur(20px)', 
+            borderColor: 'rgba(255,255,255,0.07)',
+            paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+          }}>
           <div className="flex items-center justify-around px-2 pt-2 pb-safe">
             {navItems.filter(item => !item.comingSoon).map(({ to, label, Icon, end }) => (
               <NavLink
