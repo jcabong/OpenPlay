@@ -4,16 +4,18 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const isMountedRef          = useRef(true)
-  const fetchingRef           = useRef(false)
+  const [user, setUser]               = useState(null)
+  const [profile, setProfile]         = useState(null)
+  const [loading, setLoading]         = useState(true)       // auth initialising
+  const [profileLoading, setProfileLoading] = useState(false) // profile fetch in progress
+  const isMountedRef                  = useRef(true)
+  const fetchingRef                   = useRef(false)
 
   // ─── Fetch profile (with double-fetch guard) ──────────────────────────────
   async function fetchProfile(userId) {
-    if (fetchingRef.current) return      // prevent race between initAuth + onAuthStateChange
+    if (fetchingRef.current) return
     fetchingRef.current = true
+    setProfileLoading(true)
     try {
       console.log('🟡 Fetching profile for:', userId)
       const { data, error } = await supabase
@@ -39,11 +41,14 @@ export function AuthProvider({ children }) {
       if (isMountedRef.current) setProfile(null)
     } finally {
       fetchingRef.current = false
-      if (isMountedRef.current) setLoading(false)
+      if (isMountedRef.current) {
+        setProfileLoading(false)
+        setLoading(false)
+      }
     }
   }
 
-  // ─── Shared session handler (reused by init, auth listener, and visibility) 
+  // ─── Shared session handler ───────────────────────────────────────────────
   async function handleSession(session) {
     if (!isMountedRef.current) return
     setUser(session?.user ?? null)
@@ -51,6 +56,7 @@ export function AuthProvider({ children }) {
       await fetchProfile(session.user.id)
     } else {
       setProfile(null)
+      setProfileLoading(false)
       setLoading(false)
     }
   }
@@ -58,16 +64,15 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     isMountedRef.current = true
 
-    // ── Safety timeout: never leave the user on a blank/loading screen ───────
-    // Covers the desktop bug where loading stays true if init silently stalls
+    // Safety timeout — never leave user stuck on loading screen
     const safetyTimeout = setTimeout(() => {
       if (isMountedRef.current) {
         console.warn('⚠️ Safety timeout fired — forcing loading:false')
         setLoading(false)
+        setProfileLoading(false)
       }
     }, 5000)
 
-    // ── Initial session check ─────────────────────────────────────────────────
     const initAuth = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
@@ -75,7 +80,10 @@ export function AuthProvider({ children }) {
         await handleSession(session)
       } catch (err) {
         console.error('🔴 Init error:', err)
-        if (isMountedRef.current) setLoading(false)
+        if (isMountedRef.current) {
+          setLoading(false)
+          setProfileLoading(false)
+        }
       } finally {
         clearTimeout(safetyTimeout)
       }
@@ -83,14 +91,12 @@ export function AuthProvider({ children }) {
 
     initAuth()
 
-    // ── Auth state listener (login, logout, token refresh) ────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🟡 Auth state change:', event, session?.user?.id ?? 'none')
       await handleSession(session)
     })
 
-    // ── Visibility handler: re-validate session when app returns to foreground ─
-    // Fixes: mobile stuck on loading after switching apps (iOS PWA + Safari/Chrome)
+    // Visibility handler — re-validate session when app returns to foreground
     const handleVisibility = async () => {
       if (document.visibilityState === 'visible') {
         console.log('👁 App back to foreground — re-checking session')
@@ -99,7 +105,10 @@ export function AuthProvider({ children }) {
           await handleSession(session)
         } catch (err) {
           console.error('🔴 Visibility recheck error:', err)
-          if (isMountedRef.current) setLoading(false)
+          if (isMountedRef.current) {
+            setLoading(false)
+            setProfileLoading(false)
+          }
         }
       }
     }
@@ -133,7 +142,15 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{
+      user,
+      profile,
+      loading,
+      profileLoading,
+      signInWithGoogle,
+      signOut,
+      refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   )
