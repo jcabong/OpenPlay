@@ -12,6 +12,7 @@ do $$ begin
     username     text unique,
     display_name text,
     avatar_url   text,
+    avatar_type  text,
     city         text,
     region       text,
     country      text default 'Philippines',
@@ -21,11 +22,18 @@ do $$ begin
     trust_score  integer default 100,
     deleted_matches_count integer default 0,
     role         text default 'user',
+    elo_rating   integer default 1000,
+    skill_tier   text default 'Casual',
     created_at   timestamptz default now(),
     updated_at   timestamptz default now()
   );
 exception when others then null;
 end $$;
+
+-- Add ELO columns to existing users table if they don't exist
+alter table public.users add column if not exists elo_rating  integer default 1000;
+alter table public.users add column if not exists skill_tier  text    default 'Casual';
+alter table public.users add column if not exists avatar_type text;
 
 alter table public.users enable row level security;
 
@@ -225,6 +233,7 @@ do $$ begin
     title      text,
     body       text,
     read       boolean default false,
+    is_read    boolean default false,
     data       jsonb,
     created_at timestamptz default now()
   );
@@ -245,6 +254,12 @@ do $$ begin
   end if;
 end $$;
 
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'notifications' and policyname = 'Users can update own notifications') then
+    create policy "Users can update own notifications" on public.notifications for update using (auth.uid() = user_id);
+  end if;
+end $$;
+
 -- ─── GAME AUDIT LOG ──────────────────────────────────────────
 do $$ begin
   create table if not exists public.game_audit_log (
@@ -262,18 +277,51 @@ end $$;
 
 alter table public.game_audit_log enable row level security;
 
+-- ─── ELO HISTORY ─────────────────────────────────────────────
+do $$ begin
+  create table if not exists public.elo_history (
+    id            uuid primary key default uuid_generate_v4(),
+    user_id       uuid references public.users(id) on delete cascade not null,
+    game_id       uuid references public.games(id) on delete cascade not null,
+    opponent_id   uuid references public.users(id),
+    rating_before integer not null,
+    rating_after  integer not null,
+    rating_delta  integer not null,
+    result        text check (result in ('win','loss')),
+    sport         text,
+    created_at    timestamptz default now()
+  );
+exception when others then null;
+end $$;
+
+alter table public.elo_history enable row level security;
+
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'elo_history' and policyname = 'Elo history viewable by everyone') then
+    create policy "Elo history viewable by everyone" on public.elo_history for select using (true);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_policies where tablename = 'elo_history' and policyname = 'Service can insert elo history') then
+    create policy "Service can insert elo history" on public.elo_history for insert with check (auth.role() = 'authenticated');
+  end if;
+end $$;
+
 -- ─── TRIGGERS & FUNCTIONS ────────────────────────────────────
 
 -- Auto-create user profile on sign-up
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.users (id, username, display_name, avatar_url)
+  insert into public.users (id, username, display_name, avatar_url, elo_rating, skill_tier)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    new.raw_user_meta_data->>'avatar_url'
+    new.raw_user_meta_data->>'avatar_url',
+    1000,
+    'Casual'
   )
   on conflict (id) do nothing;
   return new;
@@ -304,8 +352,8 @@ create or replace function public.update_trust_score_on_delete()
 returns trigger language plpgsql as $$
 begin
   if new.is_deleted = true and (old.is_deleted = false or old.is_deleted is null) then
-    update public.users 
-    set 
+    update public.users
+    set
       deleted_matches_count = deleted_matches_count + 1,
       trust_score = greatest(0, trust_score - 10)
     where id = new.user_id;
@@ -320,6 +368,149 @@ create trigger track_deletions_trigger
   for each row
   when (old.is_deleted = false and new.is_deleted = true)
   execute procedure public.update_trust_score_on_delete();
+
+-- ─── ELO HELPER FUNCTION ─────────────────────────────────────
+create or replace function public.get_skill_tier(rating integer)
+returns text language plpgsql as $$
+begin
+  if    rating < 800  then return 'Beginner';
+  elsif rating < 1200 then return 'Casual';
+  elsif rating < 1600 then return 'Intermediate';
+  elsif rating < 2000 then return 'Advanced';
+  else                      return 'Elite';
+  end if;
+end;
+$$;
+
+-- ─── ELO CALCULATION TRIGGER ─────────────────────────────────
+-- Fires after every INSERT on games.
+-- Only processes rows where result='win' AND tagged_opponent_id IS NOT NULL.
+-- Updates both players' elo_rating + skill_tier and logs to elo_history.
+create or replace function public.calculate_elo_on_match()
+returns trigger language plpgsql security definer as $$
+declare
+  winner_id       uuid;
+  loser_id        uuid;
+  winner_rating   integer;
+  loser_rating    integer;
+  new_winner_elo  integer;
+  new_loser_elo   integer;
+  expected_winner numeric;
+  k               constant integer := 32;
+begin
+  -- Only process confirmed wins with a tagged opponent
+  if new.result != 'win' or new.tagged_opponent_id is null then
+    return new;
+  end if;
+
+  winner_id := new.user_id;
+  loser_id  := new.tagged_opponent_id;
+
+  -- Fetch current ratings (default 1000 if somehow null)
+  select coalesce(elo_rating, 1000) into winner_rating
+    from public.users where id = winner_id;
+  select coalesce(elo_rating, 1000) into loser_rating
+    from public.users where id = loser_id;
+
+  -- Standard ELO formula  K=32
+  expected_winner := 1.0 / (1.0 + power(10.0, (loser_rating - winner_rating)::numeric / 400.0));
+  new_winner_elo  := winner_rating + round(k * (1.0 - expected_winner));
+  new_loser_elo   := loser_rating  + round(k * (0.0 - (1.0 - expected_winner)));
+
+  -- Floor loser at 100 so rating never goes negative / too low
+  new_loser_elo := greatest(new_loser_elo, 100);
+
+  -- Update winner
+  update public.users
+    set elo_rating = new_winner_elo,
+        skill_tier = public.get_skill_tier(new_winner_elo)
+    where id = winner_id;
+
+  -- Update loser
+  update public.users
+    set elo_rating = new_loser_elo,
+        skill_tier = public.get_skill_tier(new_loser_elo)
+    where id = loser_id;
+
+  -- Log winner history entry
+  insert into public.elo_history
+    (user_id, game_id, opponent_id, rating_before, rating_after, rating_delta, result, sport)
+  values
+    (winner_id, new.id, loser_id,
+     winner_rating, new_winner_elo, new_winner_elo - winner_rating,
+     'win', new.sport);
+
+  -- Log loser history entry
+  insert into public.elo_history
+    (user_id, game_id, opponent_id, rating_before, rating_after, rating_delta, result, sport)
+  values
+    (loser_id, new.id, winner_id,
+     loser_rating, new_loser_elo, new_loser_elo - loser_rating,
+     'loss', new.sport);
+
+  return new;
+end;
+$$;
+
+drop trigger if exists elo_update_trigger on public.games;
+create trigger elo_update_trigger
+  after insert on public.games
+  for each row execute procedure public.calculate_elo_on_match();
+
+-- ─── ELO BACKFILL (run once after first deploy) ──────────────
+-- Resets all ELO to 1000, then replays every tagged win in
+-- chronological order so historical ratings are accurate.
+-- Safe to run multiple times — it resets first each time.
+do $$
+declare
+  g               record;
+  winner_rating   integer;
+  loser_rating    integer;
+  new_winner_elo  integer;
+  new_loser_elo   integer;
+  expected_winner numeric;
+  k               constant integer := 32;
+begin
+  -- Reset
+  update public.users set elo_rating = 1000, skill_tier = 'Casual';
+  delete from public.elo_history;
+
+  for g in
+    select * from public.games
+    where result = 'win'
+      and tagged_opponent_id is not null
+      and is_deleted = false
+    order by created_at asc
+  loop
+    select coalesce(elo_rating, 1000) into winner_rating
+      from public.users where id = g.user_id;
+    select coalesce(elo_rating, 1000) into loser_rating
+      from public.users where id = g.tagged_opponent_id;
+
+    expected_winner := 1.0 / (1.0 + power(10.0, (loser_rating - winner_rating)::numeric / 400.0));
+    new_winner_elo  := winner_rating + round(k * (1.0 - expected_winner));
+    new_loser_elo   := greatest(loser_rating + round(k * (0.0 - (1.0 - expected_winner))), 100);
+
+    update public.users
+      set elo_rating = new_winner_elo, skill_tier = public.get_skill_tier(new_winner_elo)
+      where id = g.user_id;
+    update public.users
+      set elo_rating = new_loser_elo,  skill_tier = public.get_skill_tier(new_loser_elo)
+      where id = g.tagged_opponent_id;
+
+    -- Also write history so the ELO tab in ProfilePage is populated
+    insert into public.elo_history
+      (user_id, game_id, opponent_id, rating_before, rating_after, rating_delta, result, sport)
+    values
+      (g.user_id, g.id, g.tagged_opponent_id, winner_rating, new_winner_elo, new_winner_elo - winner_rating, 'win', g.sport);
+
+    insert into public.elo_history
+      (user_id, game_id, opponent_id, rating_before, rating_after, rating_delta, result, sport)
+    values
+      (g.tagged_opponent_id, g.id, g.user_id, loser_rating, new_loser_elo, new_loser_elo - loser_rating, 'loss', g.sport);
+  end loop;
+end;
+$$;
 
 -- ─── STORAGE BUCKET for media ────────────────────────────────
 insert into storage.buckets (id, name, public) values ('openplay-media', 'openplay-media', true)

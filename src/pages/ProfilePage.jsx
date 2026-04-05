@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare, Trash2, Pencil, Maximize2 } from 'lucide-react'
+import { MapPin, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare, Maximize2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 const DEFAULT_AVATARS = [
   { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
@@ -14,6 +14,14 @@ const DEFAULT_AVATARS = [
   { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
   { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
 ]
+
+const TIER_COLORS = {
+  Beginner:     { bg: 'rgba(255,255,255,0.06)',  text: 'rgba(255,255,255,0.4)',  border: 'rgba(255,255,255,0.1)'  },
+  Casual:       { bg: 'rgba(96,165,250,0.12)',   text: '#60a5fa',               border: 'rgba(96,165,250,0.25)'  },
+  Intermediate: { bg: 'rgba(167,139,250,0.12)',  text: '#a78bfa',               border: 'rgba(167,139,250,0.25)' },
+  Advanced:     { bg: 'rgba(251,191,36,0.12)',   text: '#fbbf24',               border: 'rgba(251,191,36,0.25)'  },
+  Elite:        { bg: 'rgba(200,255,0,0.12)',    text: '#c8ff00',               border: 'rgba(200,255,0,0.3)'    },
+}
 
 function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
   const [selected, setSelected]         = useState(currentUrl || null)
@@ -149,7 +157,7 @@ function PostRow({ post }) {
   const sport = SPORTS.find(s => s.id === post.sport)
   const [showMediaModal, setShowMediaModal] = useState(false)
   const [selectedMedia, setSelectedMedia] = useState(null)
-  
+
   const hasMedia = post.media_urls?.length > 0
   const firstMedia = hasMedia ? post.media_urls[0] : null
   const firstMediaType = hasMedia ? post.media_types?.[0] : null
@@ -175,20 +183,14 @@ function PostRow({ post }) {
           {post.content && (
             <p className="text-sm text-ink-200 leading-relaxed line-clamp-2">{post.content}</p>
           )}
-          
-          {/* Media Preview */}
           {hasMedia && (
             <div className="mt-2">
               {isVideo ? (
-                <div 
+                <div
                   className="relative rounded-xl overflow-hidden bg-ink-800 cursor-pointer group"
                   onClick={() => openMediaModal(firstMedia)}
                 >
-                  <video 
-                    src={firstMedia} 
-                    className="w-full max-h-48 object-cover"
-                    preload="metadata"
-                  />
+                  <video src={firstMedia} className="w-full max-h-48 object-cover" preload="metadata" />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-all">
                     <div className="w-12 h-12 rounded-full bg-accent/90 flex items-center justify-center transform transition-transform group-hover:scale-110">
                       <svg className="w-6 h-6 text-ink-900 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
@@ -202,21 +204,18 @@ function PostRow({ post }) {
                   </div>
                 </div>
               ) : (
-                <img 
-                  src={firstMedia} 
-                  alt="Post media" 
+                <img
+                  src={firstMedia}
+                  alt="Post media"
                   className="rounded-xl max-h-48 object-cover cursor-pointer"
                   onClick={() => openMediaModal(firstMedia)}
                 />
               )}
               {post.media_urls.length > 1 && (
-                <p className="text-[9px] text-ink-600 font-bold mt-1">
-                  +{post.media_urls.length - 1} more
-                </p>
+                <p className="text-[9px] text-ink-600 font-bold mt-1">+{post.media_urls.length - 1} more</p>
               )}
             </div>
           )}
-          
           {post.location_name && (
             <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-2">
               <MapPin size={8} />{post.location_name}
@@ -234,33 +233,22 @@ function PostRow({ post }) {
         </div>
       </div>
 
-      {/* Media Fullscreen Modal */}
       {showMediaModal && selectedMedia && (
-        <div 
+        <div
           className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
           onClick={() => setShowMediaModal(false)}
         >
           <div className="relative max-w-full max-h-full p-4">
-            <button 
+            <button
               className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
               onClick={() => setShowMediaModal(false)}
             >
               <X size={24} />
             </button>
             {isVideo ? (
-              <video 
-                src={selectedMedia} 
-                className="max-w-full max-h-[90vh]"
-                controls 
-                autoPlay
-                playsInline
-              />
+              <video src={selectedMedia} className="max-w-full max-h-[90vh]" controls autoPlay playsInline />
             ) : (
-              <img 
-                src={selectedMedia} 
-                className="max-w-full max-h-[90vh] object-contain" 
-                alt="Fullscreen media"
-              />
+              <img src={selectedMedia} className="max-w-full max-h-[90vh] object-contain" alt="Fullscreen media" />
             )}
           </div>
         </div>
@@ -269,7 +257,40 @@ function PostRow({ post }) {
   )
 }
 
-const TABS = ['Matches', 'Posts']
+function EloHistoryRow({ entry }) {
+  const sport = SPORTS.find(s => s.id === entry.sport)
+  const isWin = entry.result === 'win'
+  const delta = entry.rating_delta
+
+  return (
+    <div className="flex items-center gap-3 p-3.5 border-b border-white/5 last:border-none">
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
+        {sport?.emoji || '🏸'}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-ink-200 truncate">
+          {sport?.label || entry.sport}
+          <span className="text-ink-500 font-normal"> · {isWin ? 'Win' : 'Loss'}</span>
+        </p>
+        <p className="text-[9px] text-ink-600 mt-0.5">
+          {new Date(entry.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+        </p>
+      </div>
+      <div className="text-right shrink-0 flex items-center gap-2">
+        <div className={`flex items-center gap-1 text-xs font-black ${delta > 0 ? 'text-accent' : delta < 0 ? 'text-spark' : 'text-ink-500'}`}>
+          {delta > 0 ? <TrendingUp size={12} /> : delta < 0 ? <TrendingDown size={12} /> : <Minus size={12} />}
+          {delta > 0 ? '+' : ''}{delta}
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-black text-ink-300">{entry.rating_after}</p>
+          <p className="text-[9px] text-ink-600">ELO</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const TABS = ['Matches', 'Posts', 'ELO']
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth()
@@ -277,6 +298,7 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState('Matches')
   const [games, setGames]         = useState([])
   const [posts, setPosts]         = useState([])
+  const [eloHistory, setEloHistory] = useState([])
   const [loading, setLoading]     = useState(true)
   const [editing, setEditing]     = useState(false)
   const [formData, setFormData]   = useState({
@@ -285,11 +307,11 @@ export default function ProfilePage() {
     city: '',
     region: '',
   })
-  const [saving, setSaving]             = useState(false)
+  const [saving, setSaving]                     = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
-  const [avatarUrl, setAvatarUrl]       = useState(profile?.avatar_url || null)
-  const [avatarType, setAvatarType]     = useState(profile?.avatar_type || 'initials')
-  const [saveMsg, setSaveMsg]           = useState('')
+  const [avatarUrl, setAvatarUrl]               = useState(profile?.avatar_url || null)
+  const [avatarType, setAvatarType]             = useState(profile?.avatar_type || 'initials')
+  const [saveMsg, setSaveMsg]                   = useState('')
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
@@ -308,7 +330,7 @@ export default function ProfilePage() {
 
   async function loadAll() {
     setLoading(true)
-    await Promise.all([loadGames(), loadPosts()])
+    await Promise.all([loadGames(), loadPosts(), loadEloHistory()])
     setLoading(false)
   }
 
@@ -330,6 +352,16 @@ export default function ProfilePage() {
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
     setPosts(data || [])
+  }
+
+  async function loadEloHistory() {
+    const { data } = await supabase
+      .from('elo_history')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    setEloHistory(data || [])
   }
 
   async function saveAvatar({ url, type }) {
@@ -372,6 +404,12 @@ export default function ProfilePage() {
   const totalMatches = games.length
   const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
   const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
+  const eloRating    = profile?.elo_rating ?? 1000
+  const skillTier    = profile?.skill_tier  ?? 'Casual'
+  const tierStyle    = TIER_COLORS[skillTier] || TIER_COLORS.Casual
+
+  // ELO sparkline — last 10 entries reversed for chronological order
+  const sparkData = [...eloHistory].reverse().slice(-10).map(e => e.rating_after)
 
   if (loading) {
     return (
@@ -407,13 +445,20 @@ export default function ProfilePage() {
 
         {!editing ? (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter text-white">
                 {profile?.display_name || `@${profile?.username}`}
               </h1>
               <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-white/10">
                 <Edit2 size={14} className="text-ink-500" />
               </button>
+              {/* Skill tier badge */}
+              <span
+                className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border"
+                style={{ background: tierStyle.bg, color: tierStyle.text, borderColor: tierStyle.border }}
+              >
+                {skillTier}
+              </span>
             </div>
             <p className="text-accent text-sm font-bold mt-0.5">@{profile?.username}</p>
             {(profile?.city || profile?.region) && (
@@ -483,7 +528,80 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Stats */}
+      {/* ELO Rating Card */}
+      <div className="px-4 mb-4">
+        <div
+          className="rounded-[1.5rem] border p-4 flex items-center gap-4"
+          style={{ background: tierStyle.bg, borderColor: tierStyle.border }}
+        >
+          {/* ELO number */}
+          <div className="text-center shrink-0">
+            <p className="font-display text-4xl font-bold italic leading-none" style={{ color: tierStyle.text }}>
+              {eloRating}
+            </p>
+            <p className="text-[9px] font-black uppercase tracking-widest mt-1" style={{ color: tierStyle.text, opacity: 0.7 }}>
+              ELO Rating
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="w-px self-stretch" style={{ background: tierStyle.border }} />
+
+          {/* Sparkline */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: tierStyle.text, opacity: 0.7 }}>
+              Recent trend
+            </p>
+            {sparkData.length > 1 ? (
+              <svg width="100%" height="36" viewBox={`0 0 ${sparkData.length * 20} 36`} preserveAspectRatio="none">
+                {(() => {
+                  const min = Math.min(...sparkData)
+                  const max = Math.max(...sparkData)
+                  const range = max - min || 1
+                  const pts = sparkData.map((v, i) => `${i * 20},${36 - ((v - min) / range) * 30 + 3}`)
+                  return (
+                    <>
+                      <polyline
+                        points={pts.join(' ')}
+                        fill="none"
+                        stroke={tierStyle.text}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity="0.6"
+                      />
+                      {sparkData.map((v, i) => (
+                        <circle
+                          key={i}
+                          cx={i * 20}
+                          cy={36 - ((v - min) / range) * 30 + 3}
+                          r="2.5"
+                          fill={tierStyle.text}
+                          opacity={i === sparkData.length - 1 ? 1 : 0.4}
+                        />
+                      ))}
+                    </>
+                  )
+                })()}
+              </svg>
+            ) : (
+              <p className="text-[10px]" style={{ color: tierStyle.text, opacity: 0.5 }}>
+                Play more matches to see your trend
+              </p>
+            )}
+          </div>
+
+          {/* Tier badge */}
+          <div className="text-center shrink-0">
+            <p className="text-xs font-black uppercase tracking-widest" style={{ color: tierStyle.text }}>
+              {skillTier}
+            </p>
+            <p className="text-[9px] mt-0.5" style={{ color: tierStyle.text, opacity: 0.6 }}>Tier</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats grid */}
       <div className="grid grid-cols-3 gap-3 px-4 mb-5">
         <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
           <p className="font-display text-2xl font-bold text-accent italic">{totalWins}</p>
@@ -499,7 +617,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Tabs: Matches / Posts */}
+      {/* Tabs */}
       <div className="px-4 mb-4">
         <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
           {TABS.map(tab => (
@@ -510,13 +628,17 @@ export default function ProfilePage() {
                 activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
               }`}
             >
-              {tab === 'Matches' ? <Trophy size={12} /> : <MessageSquare size={12} />}
+              {tab === 'Matches' && <Trophy size={12} />}
+              {tab === 'Posts' && <MessageSquare size={12} />}
+              {tab === 'ELO' && <TrendingUp size={12} />}
               {tab}
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'
-              }`}>
-                {tab === 'Matches' ? totalMatches : posts.length}
-              </span>
+              {tab !== 'ELO' && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'
+                }`}>
+                  {tab === 'Matches' ? totalMatches : posts.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -544,6 +666,35 @@ export default function ProfilePage() {
           ) : (
             <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
               {posts.map(post => <PostRow key={post.id} post={post} />)}
+            </div>
+          )
+        )}
+
+        {activeTab === 'ELO' && (
+          eloHistory.length === 0 ? (
+            <div className="text-center py-14 px-6">
+              <p className="text-4xl mb-3">📊</p>
+              <p className="text-ink-600 text-xs font-black uppercase tracking-widest">No ELO history yet</p>
+              <p className="text-ink-700 text-xs mt-2">Tag an opponent when logging a match to start tracking your ELO!</p>
+            </div>
+          ) : (
+            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+              {/* Summary row */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10"
+                style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">
+                  {eloHistory.length} rated matches
+                </p>
+                <div className="flex items-center gap-3 text-[9px] font-black uppercase tracking-widest">
+                  <span className="text-accent">
+                    +{eloHistory.filter(e => e.rating_delta > 0).reduce((s, e) => s + e.rating_delta, 0)} gained
+                  </span>
+                  <span className="text-spark">
+                    {eloHistory.filter(e => e.rating_delta < 0).reduce((s, e) => s + e.rating_delta, 0)} lost
+                  </span>
+                </div>
+              </div>
+              {eloHistory.map((entry, i) => <EloHistoryRow key={entry.id || i} entry={entry} />)}
             </div>
           )
         )}
