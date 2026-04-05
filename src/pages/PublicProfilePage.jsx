@@ -70,7 +70,7 @@ export default function PublicProfilePage() {
         .eq('is_deleted', false)
         .order('created_at', { ascending: false }),
       supabase.from('posts')
-        .select('*, author:users!posts_author_id_fkey(id,username), likes(user_id), comments(*, users(username))')
+        .select('*, author:users!posts_author_id_fkey(id, username, avatar_url, avatar_type), likes(user_id), comments(*, users(username))')
         .eq('author_id', usr.id)
         .eq('is_deleted', false)
         .order('inserted_at', { ascending: false }),
@@ -127,6 +127,7 @@ export default function PublicProfilePage() {
   }).filter(s => s.total > 0)
 
   const initial = (profile.username || 'P').charAt(0).toUpperCase()
+  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
@@ -146,9 +147,21 @@ export default function PublicProfilePage() {
       </div>
 
       <div className="px-5 pb-4 -mt-10">
-        <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl border-4 border-ink-900 glow-accent mb-3">
-          {initial}
+        {/* Avatar with support for custom or default images */}
+        <div className="relative w-20 h-20 mb-3">
+          {hasAvatar ? (
+            <img 
+              src={profile.avatar_url} 
+              alt="avatar" 
+              className="w-20 h-20 rounded-[1.5rem] object-cover border-4 border-ink-900 glow-accent" 
+            />
+          ) : (
+            <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl border-4 border-ink-900 glow-accent">
+              {initial}
+            </div>
+          )}
         </div>
+        
         <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter text-white leading-none">
           {profile.display_name || `@${profile.username}`}
         </h1>
