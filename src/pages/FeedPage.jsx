@@ -95,9 +95,9 @@ export default function FeedPage() {
       .from('posts')
       .select(`
         *,
-        author:users!posts_author_id_fkey (id, username, display_name, avatar_url),
+        author:users!posts_author_id_fkey (id, username, display_name, avatar_url, avatar_type),
         likes (user_id),
-        comments (*, users(id, username, display_name), comment_likes(user_id), comment_replies(*, users(id, username, display_name)))
+        comments (*, users(id, username, display_name, avatar_url, avatar_type), comment_likes(user_id), comment_replies(*, users(id, username, display_name, avatar_url, avatar_type)))
       `)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
@@ -186,11 +186,10 @@ export default function FeedPage() {
     return { urls, types }
   }
 
-  // ── Composer display info ──────────────────────────────────────────────────
-  const username     = profile?.username || user?.email?.split('@')[0] || 'You'
-  const initial      = username.charAt(0).toUpperCase()
-  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
-  const avatarBg     = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  // ── Composer display info ──
+  const username = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial = username.charAt(0).toUpperCase()
+  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
   const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
 
   async function handlePost() {
@@ -279,9 +278,20 @@ export default function FeedPage() {
               className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all hover:border-white/20"
               style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
             >
-              <div className="w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shrink-0"
-                style={{ background: avatarBg, color: '#0a0a0f' }}>
-                {initial}
+              {/* Avatar with support for custom or default */}
+              <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
+                {hasAvatar ? (
+                  <img 
+                    src={profile.avatar_url} 
+                    alt="avatar" 
+                    className="w-full h-full object-cover" 
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-black text-sm"
+                    style={{ background: avatarBg, color: '#0a0a0f' }}>
+                    {initial}
+                  </div>
+                )}
               </div>
               <span className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
                 What's happening on court?
@@ -293,9 +303,20 @@ export default function FeedPage() {
 
               {/* Composer header */}
               <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-                <div className="w-9 h-9 rounded-2xl flex items-center justify-center font-black text-sm shrink-0"
-                  style={{ background: avatarBg, color: '#0a0a0f' }}>
-                  {initial}
+                {/* Avatar with support for custom or default */}
+                <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
+                  {hasAvatar ? (
+                    <img 
+                      src={profile.avatar_url} 
+                      alt="avatar" 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-black text-sm"
+                      style={{ background: avatarBg, color: '#0a0a0f' }}>
+                      {initial}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm font-black text-white">@{username}</p>
