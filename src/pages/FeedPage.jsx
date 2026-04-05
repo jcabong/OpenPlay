@@ -3,10 +3,33 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { notifyMentions } from '../hooks/useNotifications'
 import { Loader2, RefreshCw, Image, Send, X, Hash, MapPin, Navigation } from 'lucide-react'
+import imageCompression from 'browser-image-compression'
 import PostCard from '../components/PostCard'
 
 const ALL_SPORTS = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
 const POSTS_PER_PAGE = 10
+
+// Image compression options
+const compressionOptions = {
+  maxSizeMB: 0.5,
+  maxWidthOrHeight: 1200,
+  useWebWorker: true,
+  fileType: 'image/jpeg',
+}
+
+async function compressImage(file) {
+  if (file.type.startsWith('video')) return file
+  if (file.size < 500 * 1024) return file
+  
+  try {
+    const compressed = await imageCompression(file, compressionOptions)
+    console.log(`📸 Compressed: ${(file.size / 1024).toFixed(1)}KB → ${(compressed.size / 1024).toFixed(1)}KB`)
+    return compressed
+  } catch (error) {
+    console.error('Compression error:', error)
+    return file
+  }
+}
 
 // ── Mention-aware Textarea ──────────────────────────────────────────────────
 function MentionTextarea({ value, onChange, placeholder }) {
@@ -231,13 +254,16 @@ export default function FeedPage() {
   async function uploadMedia() {
     const urls = [], types = []
     for (const file of mediaFiles) {
-      const ext = file.name.split('.').pop()
+      // Compress image before upload
+      const fileToUpload = await compressImage(file)
+      
+      const ext = fileToUpload.type.startsWith('video') ? 'mp4' : 'jpg'
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error } = await supabase.storage.from('openplay-media').upload(path, file)
+      const { error } = await supabase.storage.from('openplay-media').upload(path, fileToUpload)
       if (!error) {
         const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
         urls.push(publicUrl)
-        types.push(file.type.startsWith('video') ? 'video' : 'image')
+        types.push(fileToUpload.type.startsWith('video') ? 'video' : 'image')
       }
     }
     return { urls, types }
