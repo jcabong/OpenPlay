@@ -220,6 +220,34 @@ export default function Layout({ children }) {
                 </div>
               ))}
             </div>
+
+            {/* Coming Soon: Party UP */}
+            <div className="rounded-3xl border p-5 cursor-pointer transition-all hover:border-blue-500/30"
+              onClick={() => handleComingSoonClick('Party UP')}
+              style={{ background: 'rgba(59,130,246,0.06)', borderColor: 'rgba(59,130,246,0.15)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Users size={16} style={{ color: '#60a5fa' }} />
+                <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#60a5fa' }}>Party UP</p>
+                <span className="ml-auto text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'rgba(96,165,250,0.15)', color: '#60a5fa' }}>Soon</span>
+              </div>
+              <p className="text-[11px] font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>Find · Book · Play</p>
+              <p className="text-[10px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>Book playing partners, coaches & celebrity players</p>
+            </div>
+
+            {/* Coming Soon: Locker Room */}
+            <div className="rounded-3xl border p-5 cursor-pointer transition-all hover:border-amber-500/30"
+              onClick={() => handleComingSoonClick('Locker Room')}
+              style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.15)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <ShoppingBag size={16} style={{ color: '#f59e0b' }} />
+                <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#f59e0b' }}>OP Market</p>
+                <span className="ml-auto text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>Soon</span>
+              </div>
+              <p className="text-[11px] font-bold" style={{ color: 'rgba(255,255,255,0.5)' }}>Buy · Sell · Trade</p>
+              <p className="text-[10px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>Sports gear marketplace for local players</p>
+            </div>
           </div>
         </aside>
       </div>
@@ -237,9 +265,10 @@ export default function Layout({ children }) {
           </div>
           <div className="flex items-center gap-2">
             {/* Bell */}
-            <button onClick={() => setShowNotifications(true)}
-              className="relative p-2 rounded-xl"
-              style={{ color: 'rgba(255,255,255,0.5)' }}>
+            <button
+              onClick={() => setShowNotifications(true)}
+              className="relative flex items-center justify-center rounded-xl"
+              style={{ color: 'rgba(255,255,255,0.5)', minWidth: '44px', minHeight: '44px' }}>
               <Bell size={20} />
               {unreadCount > 0 && (
                 <span className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black"
@@ -250,10 +279,10 @@ export default function Layout({ children }) {
             </button>
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="p-2 rounded-xl"
-              style={{ color: 'rgba(255,255,255,0.5)' }}
+              className="flex items-center justify-center rounded-xl"
+              style={{ color: 'rgba(255,255,255,0.5)', minWidth: '44px', minHeight: '44px' }}
             >
-              <Menu size={20} />
+              <Menu size={22} />
             </button>
           </div>
         </header>
@@ -298,33 +327,40 @@ export default function Layout({ children }) {
               {/* Nav links */}
               <nav className="flex-1 px-3 py-4 space-y-1">
                 {navItems.map(({ to, label, Icon, end, comingSoon }) => (
-                  <NavLink
-                    key={label}
-                    to={to}
-                    end={end}
-                    onClick={comingSoon ? (e) => { e.preventDefault(); handleComingSoonClick(label); } : () => setMobileMenuOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
-                        !comingSoon && isActive ? 'text-black' : 'text-white/50'
-                      } ${comingSoon ? 'opacity-70' : ''}`
-                    }
-                    style={({ isActive }) => !comingSoon && isActive
-                      ? { background: '#c8ff00' }
-                      : {}
-                    }
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center gap-3">
-                        <Icon size={20} strokeWidth={isActive && !comingSoon ? 2.5 : 1.8} />
-                        {label}
-                      </div>
-                      {comingSoon && (
-                        <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-accent/20 text-accent ml-2">
-                          Soon
-                        </span>
+                  comingSoon ? (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => { handleComingSoonClick(label) }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm text-white/50 opacity-70 transition-all"
+                    >
+                      <Icon size={20} strokeWidth={1.8} />
+                      <span className="flex-1 text-left">{label}</span>
+                      <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">
+                        Soon
+                      </span>
+                    </button>
+                  ) : (
+                    <NavLink
+                      key={label}
+                      to={to}
+                      end={end}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                          isActive ? 'text-black' : 'text-white/50'
+                        }`
+                      }
+                      style={({ isActive }) => isActive ? { background: '#c8ff00' } : {}}
+                    >
+                      {({ isActive }) => (
+                        <div className="flex items-center gap-3 w-full">
+                          <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+                          {label}
+                        </div>
                       )}
-                    </div>
-                  </NavLink>
+                    </NavLink>
+                  )
                 ))}
                 
                 {/* Admin Link - Only shows for admins on mobile */}
