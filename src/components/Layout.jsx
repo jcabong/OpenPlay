@@ -12,7 +12,7 @@ const navItems = [
   { to: '/ranks',   label: 'Ranks',     Icon: Trophy,     end: false, comingSoon: false },
   { to: '/events',  label: 'Events',    Icon: Calendar,   end: false, comingSoon: false },
   { to: '/profile', label: 'Profile',   Icon: User,       end: false, comingSoon: false },
-  { to: '#',        label: 'Locker Room', Icon: ShoppingBag, end: false, comingSoon: true },
+  { to: '#',        label: 'OP Market',   Icon: ShoppingBag, end: false, comingSoon: true },
   { to: '#',        label: 'Party UP',  Icon: Users,      end: false, comingSoon: true },
 ]
 
@@ -45,8 +45,8 @@ export default function Layout({ children }) {
   }
 
   const handleComingSoonClick = (label) => {
-    if (label === 'Locker Room') {
-      alert('🚧 Locker Room - Coming Soon! 🚧\n\nBuy & sell sports gear right here.')
+    if (label === 'OP Market') {
+      alert('🚧 OP Market - Coming Soon! 🚧\n\nBuy, sell & trade sports gear right here.')
     } else if (label === 'Party UP') {
       alert('🚧 Party UP - Coming Soon! 🚧\n\nFind your perfect court companion.\nPlay with a Celebrity / Influencer or Pro Player! 🎾🏸')
     } else {
@@ -90,7 +90,7 @@ export default function Layout({ children }) {
                 to={to}
                 end={end}
                 onClick={comingSoon ? (e) => { e.preventDefault(); handleComingSoonClick(label); } : undefined}
-                title={comingSoon ? (label === 'Locker Room' ? '🔜 Buy & sell sports gear' : '🔜 Play with celebrities & pros') : label}
+                title={comingSoon ? (label === 'OP Market' ? '🔜 Buy, sell & trade sports gear' : '🔜 Play with celebrities & pros') : label}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-200 group ${
                     !comingSoon && isActive
@@ -235,9 +235,9 @@ export default function Layout({ children }) {
               <p className="text-[10px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>Book playing partners, coaches & celebrity players</p>
             </div>
 
-            {/* Coming Soon: Locker Room */}
+            {/* Coming Soon: OP Market */}
             <div className="rounded-3xl border p-5 cursor-pointer transition-all hover:border-amber-500/30"
-              onClick={() => handleComingSoonClick('Locker Room')}
+              onClick={() => handleComingSoonClick('OP Market')}
               style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.15)' }}>
               <div className="flex items-center gap-2 mb-2">
                 <ShoppingBag size={16} style={{ color: '#f59e0b' }} />
@@ -289,10 +289,10 @@ export default function Layout({ children }) {
 
         {/* Mobile slide-out menu */}
         {mobileMenuOpen && (
-          <div className="fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 z-50 flex" style={{ touchAction: 'none' }}>
             <div className="absolute inset-0 bg-black/60" onClick={() => setMobileMenuOpen(false)} />
-            <aside className="relative w-72 h-full flex flex-col border-r"
-              style={{ background: '#0a0a0f', borderColor: 'rgba(255,255,255,0.07)' }}>
+            <aside className="relative w-72 h-full flex flex-col border-r overflow-y-auto"
+              style={{ background: '#0a0a0f', borderColor: 'rgba(255,255,255,0.07)', zIndex: 51, touchAction: 'auto' }}>
               <div className="flex items-center justify-between px-5 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs"
@@ -331,8 +331,10 @@ export default function Layout({ children }) {
                     <button
                       key={label}
                       type="button"
+                      onTouchEnd={(e) => { e.preventDefault(); handleComingSoonClick(label) }}
                       onClick={() => { handleComingSoonClick(label) }}
                       className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm text-white/50 opacity-70 transition-all"
+                      style={{ minHeight: '52px', touchAction: 'manipulation' }}
                     >
                       <Icon size={20} strokeWidth={1.8} />
                       <span className="flex-1 text-left">{label}</span>
@@ -351,7 +353,7 @@ export default function Layout({ children }) {
                           isActive ? 'text-black' : 'text-white/50'
                         }`
                       }
-                      style={({ isActive }) => isActive ? { background: '#c8ff00' } : {}}
+                      style={({ isActive }) => ({ ...(isActive ? { background: '#c8ff00' } : {}), minHeight: '52px', touchAction: 'manipulation' })}
                     >
                       {({ isActive }) => (
                         <div className="flex items-center gap-3 w-full">
