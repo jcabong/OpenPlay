@@ -78,11 +78,10 @@ export function AuthProvider({ children }) {
 
     initAuth()
 
-    // Safety timeout - force loading to false after 5 seconds
     safetyTimeout = setTimeout(() => {
       if (isMounted && loading) {
-        console.log('⚠️ Safety timeout: forcing loading to false');
-        setLoading(false);
+        console.log('⚠️ Safety timeout: forcing loading to false')
+        setLoading(false)
       }
     }, 5000)
 
@@ -107,12 +106,22 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function signInWithGoogle() {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { 
-        redirectTo: `${window.location.origin}/login`,
-      },
-    })
+    try {
+      console.log('🟡 Starting Google sign in...')
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { 
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+      if (error) {
+        console.error('🔴 Google sign in error:', error)
+        alert('Failed to sign in: ' + error.message)
+      }
+    } catch (err) {
+      console.error('🔴 Sign in exception:', err)
+      alert('Failed to sign in. Please try again.')
+    }
   }
 
   async function signOut() {
