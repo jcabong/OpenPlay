@@ -23,44 +23,75 @@ export default function PublicProfilePage() {
   }, [currentUser, userId, navigate])
 
   useEffect(() => {
-    if (userId) fetchData()
-  }, [userId])
+    if (userId && (!currentUser || userId !== currentUser.id)) {
+      fetchData()
+    }
+  }, [userId, currentUser])
 
   async function fetchData() {
     setLoading(true)
+    setNotFound(false)
+    
     try {
+      console.log('🔍 Fetching profile for userId:', userId)
+      
+      // Use maybeSingle() to avoid 406 errors
       const { data: p, error } = await supabase
         .from('users')
-        .select('*')
+        .select('id, username, display_name, avatar_url, avatar_type, city, region, bio, created_at')
         .eq('id', userId)
-        .single()
+        .maybeSingle()
 
-      if (error || !p) {
+      if (error) {
+        console.error('❌ Profile fetch error:', error)
         setNotFound(true)
         setLoading(false)
         return
       }
 
-      const { data: g } = await supabase
+      if (!p) {
+        console.log('❌ No profile found for userId:', userId)
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
+
+      console.log('✅ Profile found:', p.username)
+      setProfile(p)
+
+      // Fetch user's games
+      const { data: g, error: gamesError } = await supabase
         .from('games')
         .select('*')
         .eq('user_id', userId)
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false })
 
-      const { data: po } = await supabase
+      if (gamesError) {
+        console.error('❌ Games fetch error:', gamesError)
+      }
+      setGames(g || [])
+
+      // Fetch user's posts
+      const { data: po, error: postsError } = await supabase
         .from('posts')
-        .select('*')
-        .eq('user_id', userId)
+        .select('*, comments(id)')
+        .eq('author_id', userId)
+        .eq('is_deleted', false)
         .order('inserted_at', { ascending: false })
         .limit(10)
 
-      setProfile(p)
-      setGames(g || [])
+      if (postsError) {
+        console.error('❌ Posts fetch error:', postsError)
+      }
       setPosts(po || [])
+      
     } catch (err) {
+      console.error('❌ Fetch exception:', err)
       setNotFound(true)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   if (loading) {
@@ -71,7 +102,7 @@ export default function PublicProfilePage() {
     )
   }
 
-  if (notFound) {
+  if (notFound || !profile) {
     return (
       <div className="min-h-screen bg-ink-900 flex flex-col items-center justify-center gap-4 px-6">
         <div className="text-6xl">🏸</div>
@@ -89,16 +120,16 @@ export default function PublicProfilePage() {
 
   const wins = games.filter(g => g.result === 'win').length
   const losses = games.filter(g => g.result === 'loss').length
-  const winRate = games.length > 0 ? ((wins / games.length) * 100).toFixed(0) : 0
+  const totalMatches = games.length
+  const winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
 
-  // Sport breakdown
   const sportBreakdown = games.reduce((acc, g) => {
     acc[g.sport] = (acc[g.sport] || 0) + 1
     return acc
   }, {})
-  const topSport = Object.entries(sportBreakdown).sort((a, b) => b[1] - a[1])[0]
 
   const initial = (profile?.username || 'U').charAt(0).toUpperCase()
+  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-24">
@@ -119,21 +150,32 @@ export default function PublicProfilePage() {
         {/* Avatar + Name */}
         <div className="flex flex-col items-center mb-8">
           <div className="relative mb-4">
-            <div className="w-24 h-24 bg-gradient-to-br from-accent/30 to-accent/5 rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-4xl font-display border border-accent/20 glow-accent">
-              <span className="text-accent">{initial}</span>
-            </div>
-            {/* Online indicator style badge */}
-            {topSport && (
-              <span className="absolute -bottom-2 -right-2 bg-ink-800 border border-white/10 text-[9px] font-black uppercase px-2 py-1 rounded-full text-accent">
-                {topSport[0]}
-              </span>
+            {hasAvatar ? (
+              <img 
+                src={profile.avatar_url} 
+                alt="avatar" 
+                className="w-24 h-24 rounded-[2rem] object-cover border-2 border-accent"
+              />
+            ) : (
+              <div className="w-24 h-24 bg-gradient-to-br from-accent/30 to-accent/5 rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-4xl font-display border border-accent/20 glow-accent">
+                <span className="text-accent">{initial}</span>
+              </div>
             )}
           </div>
           <h1 className="text-2xl font-display font-bold uppercase italic tracking-tight">
-            @{profile?.username}
+            {profile?.display_name || `@${profile?.username}`}
           </h1>
-          <p className="text-ink-500 text-[10px] uppercase font-black tracking-widest mt-1">
-            Member since {new Date(profile?.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+          <p className="text-accent text-[10px] font-black uppercase tracking-widest mt-1">
+            @{profile?.username}
+          </p>
+          {(profile?.city || profile?.region) && (
+            <div className="flex items-center gap-1 mt-2 text-ink-500 text-[9px] font-bold">
+              <MapPin size={10} className="text-accent" />
+              {[profile?.city, profile?.region].filter(Boolean).join(', ')}
+            </div>
+          )}
+          <p className="text-ink-500 text-[9px] uppercase font-black tracking-widest mt-2">
+            Joined {new Date(profile?.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
           </p>
         </div>
 
@@ -149,26 +191,20 @@ export default function PublicProfilePage() {
               <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Win Rate</p>
             </div>
             <div className="text-center border-x border-white/5">
-              <p className="text-2xl font-display font-bold">{games.length}</p>
+              <p className="text-2xl font-display font-bold">{totalMatches}</p>
               <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Matches</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-display font-bold text-court-400">{wins}</p>
+              <p className="text-2xl font-display font-bold text-accent">{wins}</p>
               <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Victories</p>
             </div>
           </div>
 
-          {/* Win/loss bar */}
-          {games.length > 0 && (
+          {totalMatches > 0 && (
             <div className="mt-4">
               <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
-                <div
-                  className="bg-accent rounded-l-full transition-all"
-                  style={{ width: `${winRate}%` }}
-                />
-                <div
-                  className="bg-spark/60 rounded-r-full flex-1 transition-all"
-                />
+                <div className="bg-accent rounded-l-full" style={{ width: `${winRate}%` }} />
+                <div className="bg-spark/60 rounded-r-full flex-1" />
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-[8px] text-accent font-black uppercase">{wins}W</span>
@@ -205,31 +241,31 @@ export default function PublicProfilePage() {
           <Clock size={12} /> Recent Activity
         </h2>
 
-        {posts.length === 0 && !loading && (
-          <div className="text-center py-10 glass border border-dashed border-white/10 rounded-3xl opacity-30 text-[10px] uppercase font-black">
+        {posts.length === 0 ? (
+          <div className="text-center py-10 glass border border-dashed border-white/10 rounded-3xl opacity-50 text-[10px] uppercase font-black">
             No activity yet
           </div>
+        ) : (
+          <div className="space-y-4">
+            {posts.map(post => (
+              <div
+                key={post.id}
+                className="glass p-5 rounded-[2rem] border border-white/5 bg-white/[0.01]"
+              >
+                <p className="text-ink-600 text-[8px] font-black uppercase mb-2">
+                  {new Date(post.inserted_at).toLocaleDateString()}
+                </p>
+                <p className="text-sm text-ink-100 leading-relaxed">{post.content}</p>
+                {post.location_name && (
+                  <div className="mt-3 flex items-center gap-1 text-ink-500 text-[9px] font-bold uppercase">
+                    <MapPin size={10} className="text-accent" />
+                    {post.location_name}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
-
-        <div className="space-y-4">
-          {posts.map(post => (
-            <div
-              key={post.id}
-              className="glass p-5 rounded-[2rem] border border-white/5 bg-white/[0.01]"
-            >
-              <p className="text-ink-600 text-[8px] font-black uppercase mb-2">
-                {new Date(post.inserted_at).toLocaleDateString()}
-              </p>
-              <p className="text-sm text-ink-100 leading-relaxed">{post.content}</p>
-              {post.location_name && (
-                <div className="mt-3 flex items-center gap-1 text-ink-500 text-[9px] font-bold uppercase">
-                  <MapPin size={10} className="text-accent" />
-                  {post.location_name}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )
