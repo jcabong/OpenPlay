@@ -7,7 +7,14 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error('Missing Supabase env vars. Check your .env.local file.')
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,      // keep session alive across page reloads
+    autoRefreshToken: true,    // silently refresh token before it expires
+    storageKey: 'openplay-auth', // consistent key so iOS PWA doesn't lose it on kill
+    detectSessionInUrl: true,  // needed for OAuth (Google) callback to work
+  },
+})
 
 // ─── Sport config ────────────────────────────────────────────
 export const SPORTS = [
