@@ -16,23 +16,25 @@ import PublicProfilePage  from './pages/PublicProfilePage'
 import AdminPage          from './pages/AdminPage'
 
 function ProtectedRoutes() {
-  const { user, profile, loading } = useAuth()
-  const [checking, setChecking] = useState(true)
+  const { user, profile, loading, refreshProfile } = useAuth()
 
-  // ── Use profile.username from AuthContext instead of making a 2nd DB call ──
-  // The old code called supabase directly here, causing a duplicate fetch race.
-  useEffect(() => {
-    if (!loading) setChecking(false)
-  }, [loading])
+  // ── Wait for BOTH auth AND profile to finish loading ─────────────────────
+  // Previously, profile=null during fetch was mistaken for "no profile exists",
+  // causing UsernameSetup to flash for existing users on login.
+  // Now we stay on LoadingScreen until we're certain what profile contains.
+  if (loading) return <LoadingScreen />
+  if (!user)   return <Navigate to="/login" replace />
 
-  if (loading || checking) return <LoadingScreen />
-  if (!user)               return <Navigate to="/login" replace />
+  // If user exists but profile is still null, keep waiting (fetch in progress)
+  // Safety: useAuth has a 5s timeout so this never hangs forever
+  if (user && profile === null) return <LoadingScreen />
 
-  if (!profile?.username) {
+  // Only show UsernameSetup if username is genuinely missing or empty string
+  if (!profile?.username || profile.username.trim() === '') {
     return (
       <UsernameSetup
         user={user}
-        onComplete={() => {}}  // AuthContext will auto-refresh via refreshProfile
+        onComplete={refreshProfile}
       />
     )
   }
@@ -56,13 +58,8 @@ function ProtectedRoutes() {
 function PublicRoutes() {
   const { user, loading } = useAuth()
 
-  // ── While auth is still initialising, show loading so we don't flash login ─
-  // This was the desktop bug: loading:true meant the route rendered immediately
-  // as a blank screen because LoginPage itself had no awareness of auth state.
   if (loading) return <LoadingScreen />
-
-  // If already logged in, skip login page and go straight to app
-  if (user) return <Navigate to="/" replace />
+  if (user)    return <Navigate to="/" replace />
 
   return <LoginPage />
 }
@@ -72,7 +69,6 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Login is now inside AuthProvider so it can read loading/user state */}
           <Route path="/login"         element={<PublicRoutes />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/*"             element={<ProtectedRoutes />} />
