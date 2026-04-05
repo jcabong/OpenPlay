@@ -1,52 +1,62 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
-
-import Layout            from './components/Layout'
-import LoadingScreen     from './components/LoadingScreen'
-import UsernameSetup     from './components/UsernameSetup'
-import LoginPage         from './pages/LoginPage'
-import AuthCallback      from './pages/AuthCallback'
-import FeedPage          from './pages/FeedPage'
-import LogGamePage       from './pages/LogGamePage'
-import LeaderboardPage   from './pages/LeaderboardPage'
-import EventsPage        from './pages/EventsPage'
-import ProfilePage       from './pages/ProfilePage'
+import { useState, useEffect } from 'react'
+import { supabase } from './lib/supabase'
+import Layout from './components/Layout'
+import LoginPage from './pages/LoginPage'
+import FeedPage from './pages/FeedPage'
+import LogGamePage from './pages/LogGamePage'
+import LeaderboardPage from './pages/LeaderboardPage'
+import ProfilePage from './pages/ProfilePage'
 import PublicProfilePage from './pages/PublicProfilePage'
-import AdminPage         from './pages/AdminPage'
+import LoadingScreen from './components/LoadingScreen'
+import UsernameSetup from './components/UsernameSetup'
+import AuthCallback from './pages/AuthCallback'
 
 function ProtectedRoutes() {
-  const { user, profile, loading, refreshProfile } = useAuth()
+  const { user, loading } = useAuth()
+  const [hasUsername, setHasUsername] = useState(true)
+  const [checking, setChecking] = useState(true)
 
-  // loading = true until BOTH auth + profile fetch are fully resolved
-  // So by the time loading is false, profile is definitive (not mid-fetch)
-  if (loading) return <LoadingScreen />
-  if (!user)   return <Navigate to="/login" replace />
+  useEffect(() => {
+    async function checkUsername() {
+      if (!user) return
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('username')
+          .eq('id', user.id)
+          .single()
 
-  if (!profile?.username || profile.username.trim() === '') {
-    return <UsernameSetup user={user} onComplete={refreshProfile} />
+        setHasUsername(!!data?.username)
+      } catch (err) {
+        console.error('Profile check failed', err)
+      } finally {
+        setChecking(false)
+      }
+    }
+    checkUsername()
+  }, [user])
+
+  if (loading || checking) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+
+  if (!hasUsername) {
+    return <UsernameSetup user={user} onComplete={() => setHasUsername(true)} />
   }
 
   return (
     <Layout>
       <Routes>
-        <Route path="/"               element={<FeedPage />} />
-        <Route path="/log"            element={<LogGamePage />} />
-        <Route path="/ranks"          element={<LeaderboardPage />} />
-        <Route path="/events"         element={<EventsPage />} />
-        <Route path="/profile"        element={<ProfilePage />} />
-        <Route path="/admin"          element={<AdminPage />} />
-        <Route path="/user/:username" element={<PublicProfilePage />} />
-        <Route path="*"               element={<Navigate to="/" replace />} />
+        <Route path="/"                   element={<FeedPage />} />
+        <Route path="/log"                element={<LogGamePage />} />
+        <Route path="/leaderboard"        element={<LeaderboardPage />} />
+        <Route path="/profile"            element={<ProfilePage />} />
+        <Route path="/profile/:userId"    element={<PublicProfilePage />} />
+        <Route path="*"                   element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )
-}
-
-function PublicRoutes() {
-  const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (user)    return <Navigate to="/" replace />
-  return <LoginPage />
 }
 
 export default function App() {
@@ -54,7 +64,7 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/login"         element={<PublicRoutes />} />
+          <Route path="/login"         element={<LoginPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/*"             element={<ProtectedRoutes />} />
         </Routes>
