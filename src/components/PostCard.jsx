@@ -157,7 +157,7 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
         
         <div className="flex-1 bg-white/5 px-3 py-2.5 rounded-xl border border-white/10">
           <div className="flex-1 min-w-0">
-            <Link to={`/user/${username}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
+            <Link to={`/user/${comment.users?.id}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
               {displayName}
             </Link>
             {displayName !== username && (
@@ -206,7 +206,7 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
                   )}
                 </div>
                 <div className="flex-1 bg-white/3 px-3 py-2 rounded-xl border border-white/5">
-                  <Link to={`/user/${rUsername}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
+                  <Link to={`/user/${r.users?.id}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
                     {rDisplayName}
                   </Link>
                   {rDisplayName !== rUsername && (
@@ -333,7 +333,7 @@ export default function PostCard({ post, onRefresh }) {
   }
 
   const getShareUrl = () => {
-    return `${window.location.origin}/user/${username}`
+    return `${window.location.origin}/user/${post.author?.id}`
   }
 
   const shareToTwitter = () => {
@@ -364,7 +364,7 @@ export default function PostCard({ post, onRefresh }) {
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <Link to={`/user/${username}`} className="flex items-center gap-3 flex-1 min-w-0 group">
+        <Link to={`/user/${post.author?.id}`} className="flex items-center gap-3 flex-1 min-w-0 group">
           <div className="w-10 h-10 rounded-[0.75rem] overflow-hidden shrink-0">
             {hasAvatar ? (
               <img src={post.author.avatar_url} alt="" className="w-full h-full object-cover" />
