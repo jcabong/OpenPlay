@@ -16,11 +16,24 @@ function calcScore(wins, total) {
   return wins * 0.6 + winRate * 100 * 0.4
 }
 
-function Avatar({ name, size = 'md', accent = false }) {
-  const initial = (name || '?').charAt(0).toUpperCase()
+// Updated Avatar component with image support
+function Avatar({ user, size = 'md', accent = false }) {
+  const username = user?.username || '?'
+  const initial = username.charAt(0).toUpperCase()
+  const hasAvatar = user?.avatar_url && user?.avatar_type !== 'initials'
+  
   const sz = size === 'lg' ? 'w-14 h-14 text-xl rounded-[1.25rem]'
            : size === 'sm' ? 'w-9 h-9 text-sm rounded-xl'
            : 'w-12 h-12 text-lg rounded-[1rem]'
+  
+  if (hasAvatar) {
+    return (
+      <div className={`${sz} shrink-0 overflow-hidden ${accent ? 'ring-2 ring-accent' : ''}`}>
+        <img src={user.avatar_url} alt={username} className="w-full h-full object-cover" />
+      </div>
+    )
+  }
+  
   return (
     <div className={`${sz} flex items-center justify-center font-bold shrink-0 ${
       accent ? 'bg-accent text-ink-900' : 'bg-ink-700 text-ink-300'
@@ -35,11 +48,13 @@ function Podium({ board }) {
   const first  = board[0]
   const second = board[1]
   const third  = board[2]
+  
   return (
     <div className="flex items-end gap-2 mb-6 px-2">
+      {/* Second Place */}
       {second ? (
         <div className="flex-1 flex flex-col items-center gap-2">
-          <Avatar name={second.username} />
+          <Avatar user={second} size="md" />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{second.username}</p>
             <p className="font-display font-bold text-lg text-ink-300 leading-none">{second.wins}W</p>
@@ -51,9 +66,10 @@ function Podium({ board }) {
         </div>
       ) : <div className="flex-1" />}
 
+      {/* First Place */}
       <div className="flex-1 flex flex-col items-center gap-2">
         <div className="text-2xl">👑</div>
-        <Avatar name={first.username} size="lg" accent />
+        <Avatar user={first} size="lg" accent />
         <div className="text-center">
           <p className="text-[9px] font-black text-accent truncate max-w-[80px]">@{first.username}</p>
           <p className="font-display font-bold text-2xl text-accent leading-none">{first.wins}W</p>
@@ -64,9 +80,10 @@ function Podium({ board }) {
         </div>
       </div>
 
+      {/* Third Place */}
       {third ? (
         <div className="flex-1 flex flex-col items-center gap-2">
-          <Avatar name={third.username} />
+          <Avatar user={third} size="md" />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{third.username}</p>
             <p className="font-display font-bold text-lg text-orange-400 leading-none">{third.wins}W</p>
@@ -118,7 +135,7 @@ export default function LeaderboardPage() {
   const fetchOptions = useCallback(async () => {
     const { data } = await supabase
       .from('games')
-      .select('court_name, city, province, user:users!user_id(city)')
+      .select('court_name, city, province, user:users!user_id(city, username, avatar_url, avatar_type)')
       .eq('sport', sport)
       .eq('is_deleted', false)
 
@@ -146,10 +163,10 @@ export default function LeaderboardPage() {
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('user_id, result, city, province, court_name, tagged_opponent_id, user:users!user_id(id, username, city)')
+        .select('user_id, result, city, province, court_name, tagged_opponent_id, user:users!user_id(id, username, city, avatar_url, avatar_type)')
         .eq('sport', sport)
-        .eq('is_deleted', false)   // exclude soft-deleted
-        .not('tagged_opponent_id', 'is', null) // only verified matches (tagged opponent)
+        .eq('is_deleted', false)
+        .not('tagged_opponent_id', 'is', null)
 
       if (error) {
         console.error('fetchBoard error:', error.message)
@@ -164,7 +181,6 @@ export default function LeaderboardPage() {
       if (tier === 'court')    rows = data.filter(g => g.court_name === selectedCourt)
       if (tier === 'city')     rows = data.filter(g => (g.city || g.user?.city || '') === selectedCity)
       if (tier === 'province') rows = data.filter(g => g.province === selectedProvince)
-      // national + global = all rows
 
       if (rows.length === 0) { setBoard([]); setLoading(false); return }
 
@@ -174,7 +190,10 @@ export default function LeaderboardPage() {
         const usr = g.user
         if (!usr) return acc
         if (!acc[id]) acc[id] = {
+          id: id,
           username: usr.username || '—',
+          avatar_url: usr.avatar_url,
+          avatar_type: usr.avatar_type,
           city:     g.city || usr.city || '—',
           province: g.province || '—',
           wins:     0,
@@ -315,7 +334,7 @@ export default function LeaderboardPage() {
                   <div className="w-7 h-7 rounded-lg bg-ink-800 flex items-center justify-center font-bold text-sm text-ink-500 shrink-0">
                     {i + 4}
                   </div>
-                  <Avatar name={player.username} size="sm" />
+                  <Avatar user={player} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="font-display font-bold text-sm text-ink-100 truncate">@{player.username}</p>
                     <p className="text-[10px] text-ink-400 font-bold flex items-center gap-1">
