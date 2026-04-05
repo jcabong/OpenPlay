@@ -1,15 +1,14 @@
-
 import { useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { MapPin, Navigation, Loader2, X } from 'lucide-react'
 
 function LocationSearch({ city, onCityChange }) {
-  const [query, setQuery]         = useState(city || '')
+  const [query, setQuery] = useState(city || '')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching] = useState(false)
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [focused, setFocused]     = useState(false)
-  const debounceRef               = useRef(null)
+  const [focused, setFocused] = useState(false)
+  const debounceRef = useRef(null)
 
   async function searchPlaces(q) {
     if (q.length < 2) { setSuggestions([]); return }
@@ -128,11 +127,11 @@ function LocationSearch({ city, onCityChange }) {
 }
 
 export default function UsernameSetup({ user, onComplete }) {
-  const [step, setStep]         = useState(1)
+  const [step, setStep] = useState(1)
   const [username, setUsername] = useState('')
-  const [city, setCity]         = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState('')
+  const [city, setCity] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -142,35 +141,28 @@ export default function UsernameSetup({ user, onComplete }) {
     setLoading(true)
     setError('')
 
-    console.log('🟡 Updating user:', user.id)
-    console.log('🟡 With data:', { 
-      username: username.toLowerCase().trim(), 
-      city,
-      avatar_type: 'initials' 
-    })
+    console.log('Updating user:', user.id)
+    console.log('Username:', username.toLowerCase().trim())
+    console.log('City:', city)
 
     const { error: updateError } = await supabase
       .from('users')
       .update({ 
         username: username.toLowerCase().trim(), 
-        city,
+        city: city,
         avatar_type: 'initials'
       })
       .eq('id', user.id)
 
-    console.log('🟡 Update result error:', updateError)
+    console.log('Update error:', updateError)
 
     if (updateError) {
-      console.error('🔴 Update error details:', updateError)
-      if (updateError.message.includes('unique')) {
-        setError('Username is already taken!')
-      } else {
-        setError('Something went wrong. Please try again.')
-      }
+      setError(updateError.message.includes('unique') ? 'Username is already taken!' : 'Something went wrong. Try again.')
       setLoading(false)
     } else {
-      console.log('🟢 Username setup successful!')
+      // Refresh the page to update the auth context
       onComplete()
+      window.location.href = '/'
     }
   }
 
@@ -178,14 +170,12 @@ export default function UsernameSetup({ user, onComplete }) {
     <div className="fixed inset-0 z-[100] bg-ink-900 flex items-center justify-center p-6">
       <div className="glass rounded-[2.5rem] p-8 w-full max-w-md border border-white/10 shadow-2xl">
 
-        {/* Progress dots */}
         <div className="flex gap-2 justify-center mb-8">
           {[1, 2].map(n => (
             <div key={n} className={`h-1.5 rounded-full transition-all duration-300 ${step === n ? 'w-8 bg-accent' : 'w-2 bg-white/20'}`} />
           ))}
         </div>
 
-        {/* Step 1 — Username */}
         {step === 1 && (
           <>
             <div className="text-center mb-8">
@@ -221,7 +211,6 @@ export default function UsernameSetup({ user, onComplete }) {
           </>
         )}
 
-        {/* Step 2 — Location */}
         {step === 2 && (
           <form onSubmit={handleSubmit}>
             <div className="text-center mb-8">

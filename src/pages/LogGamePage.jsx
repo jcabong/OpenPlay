@@ -1,728 +1,375 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { supabase, SPORTS } from '../lib/supabase'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
-import { notifyMentions, sendNotification } from '../hooks/useNotifications'
-import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
+import { MapPin, Users, Share2, Loader2, Check, Search, X, Image, Video } from 'lucide-react'
 
-// ── Smart location search (Google Places Autocomplete) ──────────────
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
+// ─── SETUP REQUIRED ──────────────────────────────────────────────────────────
+// 1. Create a Supabase Storage bucket named "post-media" (public)
+// 2. Add RLS policy: allow authenticated users to INSERT (upload)
+//    SQL: create policy "Auth users can upload" on storage.objects
+//         for insert to authenticated with check (bucket_id = 'post-media');
+//    SQL: create policy "Public read" on storage.objects
+//         for select to public using (bucket_id = 'post-media');
+// 3. Add columns to posts table (if not present):
+//    alter table public.posts add column if not exists media_url text;
+//    alter table public.posts add column if not exists media_type text;
+// ─────────────────────────────────────────────────────────────────────────────
 
-function useGoogleMaps() {
-  const [ready, setReady] = useState(!!window.google?.maps?.places)
-  useEffect(() => {
-    if (window.google?.maps?.places) { setReady(true); return }
-    const existing = document.getElementById('gmap-script')
-    if (!existing) {
-      const script = document.createElement('script')
-      script.id    = 'gmap-script'
-      script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places&loading=async`
-      script.async = true
-      script.defer = true
-      document.head.appendChild(script)
-    }
-    const poll = setInterval(() => {
-      if (window.google?.maps?.places) {
-        setReady(true)
-        clearInterval(poll)
-      }
-    }, 100)
-    return () => clearInterval(poll)
-  }, [])
-  return ready
-}
-
-function LocationSearch({ courtName, city, province, onCourtChange, onCityChange, onProvinceChange }) {
-  const [query, setQuery]             = useState(courtName || '')
-  const [suggestions, setSuggestions] = useState([])
-  const [searching, setSearching]     = useState(false)
-  const [gpsLoading, setGpsLoading]   = useState(false)
-  const [focused, setFocused]         = useState(false)
-  const debounceRef                   = useRef(null)
-  const sessionTokenRef               = useRef(null)
-  const mapsReady                     = useGoogleMaps()
-
-  useEffect(() => {
-    if (mapsReady) {
-      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
-    }
-  }, [mapsReady])
-
-  async function searchPlaces(q) {
-    if (q.length < 2 || !mapsReady) { setSuggestions([]); return }
-    setSearching(true)
-    try {
-      const result = await window.google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input: q,
-        sessionToken: sessionTokenRef.current,
-        includedRegionCodes: ["ph"],
-      })
-      setSuggestions((result.suggestions || []).map(s => {
-        const p = s.placePrediction
-        return {
-          placeId:   p.placeId,
-          name:      p.mainText?.text || p.text?.text || "",
-          secondary: p.secondaryText?.text || "",
-        }
-      }))
-    } catch(e) {
-      console.error("Places error", e)
-      setSuggestions([])
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  function handleInput(e) {
-    const val = e.target.value
-    setQuery(val)
-    onCourtChange(val)
-    onCityChange('')
-    onProvinceChange('')
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => searchPlaces(val), 300)
-  }
-
-  async function pickSuggestion(s) {
-    setQuery(s.name)
-    onCourtChange(s.name)
-    setSuggestions([])
-
-    try {
-      const place = new window.google.maps.places.Place({
-        id: s.placeId,
-        requestedLanguage: 'en',
-      })
-      await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
-      const comps = place.addressComponents || []
-      
-      let cityVal = ''
-      let provinceVal = ''
-      
-      const locality = comps.find(c => 
-        c.types.includes('locality') || 
-        c.types.includes('administrative_area_level_3') ||
-        c.types.includes('sublocality_level_1') ||
-        c.types.includes('sublocality')
-      )
-      
-      const provinceComp = comps.find(c => 
-        c.types.includes('administrative_area_level_2') ||
-        c.types.includes('administrative_area_level_1')
-      )
-      
-      cityVal = locality?.longText || locality?.long_name || ''
-      provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
-      
-      if (!cityVal && s.secondary) {
-        const secondaryParts = s.secondary.split(',').map(p => p.trim())
-        cityVal = secondaryParts[0] || ''
-        provinceVal = secondaryParts[1] || provinceVal
-      }
-      
-      if (!cityVal && place.formattedAddress) {
-        const parts = place.formattedAddress.split(',').map(p => p.trim())
-        if (parts.length >= 2) {
-          cityVal = parts[parts.length - 3] || parts[parts.length - 2] || ''
-        }
-      }
-      
-      onCityChange(cityVal)
-      onProvinceChange(provinceVal)
-      
-    } catch (err) {
-      console.error('Place details error:', err)
-      const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-      onCityChange(parts[0] || '')
-      onProvinceChange(parts[1] || '')
-    }
-
-    if (window.google?.maps?.places) {
-      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
-    }
-  }
-
-  function clearLocation() {
-    setQuery('')
-    onCourtChange('')
-    onCityChange('')
-    onProvinceChange('')
-    setSuggestions([])
-  }
-
-  async function detectGPS() {
-    if (!navigator.geolocation) return alert('Geolocation not supported')
-    setGpsLoading(true)
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        try {
-          const res = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`
-          )
-          const data = await res.json()
-          if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
-          
-          let name = '', cityVal = '', provinceVal = ''
-          
-          for (const result of data.results) {
-            const c = result.address_components
-            const premise  = c.find(x => x.types.includes('premise'))
-            const estab    = c.find(x => x.types.includes('establishment'))
-            const poi      = c.find(x => x.types.includes('point_of_interest'))
-            const route    = c.find(x => x.types.includes('route'))
-            const locality = c.find(x => x.types.includes('locality'))
-            const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
-            
-            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
-            if (!cityVal) cityVal = locality?.long_name || ''
-            if (!provinceVal) provinceVal = province?.long_name || ''
-            
-            if (name && cityVal) break
-          }
-          
-          if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
-          
-          setQuery(name)
-          onCourtChange(name)
-          onCityChange(cityVal)
-          onProvinceChange(provinceVal)
-          
-        } catch {
-          alert('Could not get location')
-        } finally {
-          setGpsLoading(false)
-        }
-      },
-      (err) => {
-        setGpsLoading(false)
-        if (err.code === 1) alert('Location access denied. Please enable location in your browser settings.')
-        else if (err.code === 2) alert('Location unavailable. Try again.')
-        else alert('Location request timed out. Try again.')
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    )
-  }
-
-  return (
-    <div>
-      <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-        <MapPin size={15} style={{ color: '#c8ff00', opacity: 0.8 }} className="shrink-0" />
-        <input
-          className="flex-1 py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-          style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-          placeholder="Search court or city…"
-          value={query}
-          onChange={handleInput}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 200)}
-          autoComplete="off"
-        />
-        {searching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
-        {query && !searching && (
-          <button type="button" onClick={clearLocation} className="shrink-0 text-white/30 hover:text-white/60">
-            <X size={14} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={detectGPS}
-          disabled={gpsLoading}
-          className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
-          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
-        >
-          {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
-        </button>
-      </div>
-      {focused && suggestions.length > 0 && (
-        <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
-          style={{ background: '#13131f' }}>
-          {suggestions.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              onMouseDown={() => pickSuggestion(s)}
-              className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors"
-            >
-              <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
-              <div>
-                <p className="text-xs font-bold text-white leading-tight">{s.name}</p>
-                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.secondary}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-      {(city || province) && (
-        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
-          {city && (
-            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
-              📍 {city}
-            </span>
-          )}
-          {province && (
-            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
-              🗺️ {province}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  )
+const BUCKET = 'post-media'
+const MAX_FILE_MB = 50
+const ACCEPTED_TYPES = {
+  image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  video: ['video/mp4', 'video/quicktime', 'video/webm']
 }
 
 export default function LogGamePage() {
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
-  const [loading, setLoading]         = useState(false)
-  const [mediaFiles, setMediaFiles]   = useState([])
-  const [mediaPreviews, setMediaPreviews] = useState([])
   const fileInputRef = useRef(null)
+  const [loading, setLoading] = useState(false)
 
+  // Form state
   const [formData, setFormData] = useState({
-    sport:      'badminton',
+    sport: 'tennis',
     court_name: '',
-    city:       '',
-    province:   '',
-    result:     'win',
-    score:      '',
-    intensity:  'Med',
-    content:    '',
+    result: 'win',
+    score: '',
+    intensity: 'Med',
+    mood: '🔥'
   })
 
-  const [searchQuery, setSearchQuery]   = useState('')
+  // Opponent tagging
+  const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
-  const [taggedUser, setTaggedUser]     = useState(null)
-  const [isSearching, setIsSearching]   = useState(false)
+  const [taggedUser, setTaggedUser] = useState(null)
+  const [isSearching, setIsSearching] = useState(false)
 
-  async function searchOpponents(query) {
-    if (!query || query.length < 2) return
+  // Media upload state
+  const [mediaFile, setMediaFile] = useState(null)           // File object
+  const [mediaPreview, setMediaPreview] = useState(null)     // blob URL for preview
+  const [mediaType, setMediaType] = useState(null)           // 'image' | 'video'
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [mediaError, setMediaError] = useState('')
+
+  // Cleanup preview blob URL on unmount
+  useEffect(() => {
+    return () => { if (mediaPreview) URL.revokeObjectURL(mediaPreview) }
+  }, [mediaPreview])
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.length >= 2 && !taggedUser) handleSearch(searchQuery)
+      else setSearchResults([])
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  async function handleSearch(query) {
     setIsSearching(true)
-    
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, username, full_name, city, province')
+    const { data } = await supabase
+      .from('users')
+      .select('id, username')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
       .limit(5)
-    
-    if (error) {
-      console.error('Search error:', error)
-    } else {
-      setSearchResults(data || [])
-    }
+    setSearchResults(data || [])
     setIsSearching(false)
   }
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery.length >= 2 && !taggedUser) {
-        searchOpponents(searchQuery)
-      } else if (searchQuery.length === 0) {
-        setSearchResults([])
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery, taggedUser])
+  function handleFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!fileInputRef.current) fileInputRef.current.value = ''
+    setMediaError('')
 
-  function handleMediaSelect(e) {
-    const files = Array.from(e.target.files)
-    setMediaFiles(prev => [...prev, ...files].slice(0, 6))
-    files.forEach(file => {
-      const url = URL.createObjectURL(file)
-      setMediaPreviews(prev => [...prev, { url, type: file.type.startsWith('video') ? 'video' : 'image' }])
-    })
-  }
+    if (!file) return
 
-  function removeMedia(index) {
-    setMediaFiles(prev => prev.filter((_, i) => i !== index))
-    setMediaPreviews(prev => prev.filter((_, i) => i !== index))
-  }
+    const isImage = ACCEPTED_TYPES.image.includes(file.type)
+    const isVideo = ACCEPTED_TYPES.video.includes(file.type)
 
-  async function uploadMedia() {
-    const urls = [], types = []
-    for (const file of mediaFiles) {
-      const ext = file.name.split('.').pop()
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error } = await supabase.storage.from('openplay-media').upload(path, file)
-      if (!error) {
-        const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
-        urls.push(publicUrl)
-        types.push(file.type.startsWith('video') ? 'video' : 'image')
-      }
+    if (!isImage && !isVideo) {
+      setMediaError('Only JPG, PNG, WebP, GIF, MP4, MOV, or WebM files are allowed.')
+      return
     }
-    return { urls, types }
+
+    const sizeMB = file.size / (1024 * 1024)
+    if (sizeMB > MAX_FILE_MB) {
+      setMediaError(`File too large. Max size is ${MAX_FILE_MB}MB.`)
+      return
+    }
+
+    // Clean up old preview
+    if (mediaPreview) URL.revokeObjectURL(mediaPreview)
+
+    setMediaFile(file)
+    setMediaType(isImage ? 'image' : 'video')
+    setMediaPreview(URL.createObjectURL(file))
+  }
+
+  function clearMedia() {
+    if (mediaPreview) URL.revokeObjectURL(mediaPreview)
+    setMediaFile(null)
+    setMediaPreview(null)
+    setMediaType(null)
+    setMediaError('')
+    setUploadProgress(0)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function uploadMediaToStorage() {
+    if (!mediaFile) return null
+
+    // Unique path: userId/timestamp-filename
+    const ext = mediaFile.name.split('.').pop()
+    const fileName = `${user.id}/${Date.now()}.${ext}`
+
+    setUploadProgress(10)
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .upload(fileName, mediaFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: mediaFile.type
+      })
+
+    setUploadProgress(80)
+
+    if (error) {
+      console.error('Storage upload error:', error)
+      throw new Error('Media upload failed: ' + error.message)
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(data.path)
+
+    setUploadProgress(100)
+    return urlData.publicUrl
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (loading || !user) return
-
-    if (formData.result === 'win' && !taggedUser) {
-      alert('⚠️ To record a WIN, you must tag your opponent. This keeps the rankings fair.')
-      return
-    }
-
     setLoading(true)
+    setMediaError('')
 
     try {
-      const { urls: media_urls, types: media_types } = mediaFiles.length
-        ? await uploadMedia()
-        : { urls: [], types: [] }
+      let mediaUrl = null
 
-      // ========== 1. INSERT YOUR GAME ==========
-      const { data: game, error: gameError } = await supabase.from('games').insert([{
-        user_id:            user.id,
-        sport:              formData.sport,
-        court_name:         formData.court_name,
-        city:               formData.city,
-        province:           formData.province,
-        result:             formData.result,
-        score:              formData.score,
-        intensity:          formData.intensity,
-        opponent_name:      taggedUser ? taggedUser.username : searchQuery,
-        tagged_opponent_id: taggedUser?.id || null,
-        created_at:         new Date().toISOString(),
-      }]).select().single()
-
-      if (gameError) {
-        console.error('❌ Game insert error:', gameError)
-        throw gameError
-      }
-      console.log('✅ Your game recorded:', { id: game.id, result: game.result, opponent: game.opponent_name })
-
-      // ========== 2. INSERT OPPONENT'S GAME (CRITICAL FIX) ==========
-      let opponentGame = null
-      if (taggedUser && formData.result === 'win') {
-        console.log('🔄 Recording opponent loss for:', taggedUser.username)
-        
-        const opponentGameData = {
-          user_id:            taggedUser.id,
-          sport:              formData.sport,
-          court_name:         formData.court_name,
-          city:               formData.city,
-          province:           formData.province,
-          result:             'loss',
-          score:              formData.score,
-          intensity:          formData.intensity,
-          opponent_name:      profile?.username || 'opponent',
-          tagged_opponent_id: user.id,
-          created_at:         new Date().toISOString(),
-        }
-        
-        console.log('📤 Opponent game data:', opponentGameData)
-        
-        const { data: oppData, error: opponentError } = await supabase
-          .from('games')
-          .insert([opponentGameData])
-          .select()
-        
-        if (opponentError) {
-          console.error('❌ Opponent sync FAILED:', opponentError)
-          console.error('Error details:', opponentError.message, opponentError.details, opponentError.hint)
-          alert('⚠️ Match recorded but opponent stats failed to update. The match has been saved but opponent rankings may be incorrect.')
-        } else {
-          opponentGame = oppData[0]
-          console.log('✅ Opponent loss recorded:', { id: opponentGame.id, result: opponentGame.result })
-        }
-      } else if (taggedUser && formData.result === 'loss') {
-        console.log('ℹ️ You recorded a loss, no opponent sync needed')
+      // Upload media first if present
+      if (mediaFile) {
+        mediaUrl = await uploadMediaToStorage()
       }
 
-      // ========== 3. CREATE POST ==========
-      const sport    = SPORTS.find(s => s.id === formData.sport)
-      const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
-      const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
+      // 1. Save to games table
+      const { error: gameError } = await supabase.from('games').insert([{
+        user_id: user.id,
+        ...formData,
+        opponent_name: taggedUser ? taggedUser.username : searchQuery,
+        tagged_opponent_id: taggedUser ? taggedUser.id : null,
+        created_at: new Date().toISOString()
+      }])
+      if (gameError) throw gameError
 
-      const { data: newPost, error: postError } = await supabase.from('posts').insert([{
-        author_id:     user.id,
-        user_id:       user.id,
-        content:       formData.content || autoContent,
-        sport:         formData.sport,
+      // 2. Save to posts table (feed)
+      const opponentDisplay = taggedUser ? `@${taggedUser.username}` : (searchQuery || 'Open Play')
+      const { error: postError } = await supabase.from('posts').insert([{
+        user_id: user.id,
+        content: `🎾 Just logged a ${formData.sport} match at ${formData.court_name}. Result: ${formData.result.toUpperCase()} (${formData.score}). Vs: ${opponentDisplay}`,
         location_name: formData.court_name,
-        city:          formData.city,
-        province:      formData.province,
-        media_urls,
-        media_types,
-        game_id:       game.id,
-        inserted_at:   new Date().toISOString(),
-      }]).select().single()
+        sport: formData.sport,
+        media_url: mediaUrl,
+        media_type: mediaUrl ? mediaType : null,
+        inserted_at: new Date().toISOString()
+      }])
+      if (postError) console.error('Feed sync issue:', postError.message)
 
-      if (postError) {
-        console.warn('⚠️ Feed post failed:', postError.message)
-      } else {
-        console.log('✅ Post created:', newPost.id)
-      }
-
-      // ========== 4. SEND NOTIFICATIONS ==========
-      const myUsername = profile?.username || 'user'
-
-      if (taggedUser && formData.result === 'win') {
-        await sendNotification({
-          userId: taggedUser.id,
-          type:   'tagged_match',
-          title:  `@${myUsername} recorded a match against you`,
-          body:   `${sport?.emoji} ${sport?.label} · A LOSS has been recorded on your profile. Score: ${formData.score || '—'}`,
-          data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
-        }).catch(err => console.error('Notification error:', err))
-        console.log('📧 Notification sent to:', taggedUser.username)
-      }
-
-      const caption = formData.content.trim()
-      if (caption.includes('@') && newPost) {
-        await notifyMentions({
-          text:     caption,
-          fromUser: { id: user.id, username: myUsername },
-          postId:   newPost.id,
-        }).catch(err => console.error('Mention notification error:', err))
-      }
-
-      // ========== 5. SUCCESS ==========
-      const syncStatus = opponentGame ? '✅ Opponent stats updated' : (taggedUser && formData.result === 'win' ? '⚠️ Opponent stats failed to update' : 'No opponent to sync')
-      alert(`✅ Match recorded successfully!\n\n${syncStatus}`)
-      navigate('/')
-      
+      navigate('/profile')
     } catch (err) {
-      console.error('❌ Submit error:', err)
       alert('Error saving match: ' + err.message)
     } finally {
       setLoading(false)
+      setUploadProgress(0)
     }
   }
 
   return (
-    <div className="min-h-screen pb-32" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
-      <div className="px-5 pt-12 pb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-1.5 h-8 rounded-full" style={{ background: '#c8ff00' }} />
-          <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">Record Match</h1>
-        </div>
-        <p className="text-xs font-bold uppercase tracking-widest ml-4" style={{ color: '#c8ff00', opacity: 0.7 }}>
-          Sync your performance
-        </p>
-      </div>
+    <div className="min-h-screen bg-ink-900 text-ink-50 p-6 pb-24">
+      <header className="mb-8">
+        <h1 className="text-3xl font-display font-bold italic uppercase tracking-tighter text-white">Record Match</h1>
+        <p className="text-accent text-[8px] font-black uppercase tracking-widest mt-1">Sync your performance to the network</p>
+      </header>
 
-      <form onSubmit={handleSubmit} className="px-5 space-y-5">
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {SPORTS.map(s => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setFormData({ ...formData, sport: s.id })}
-              className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase border-2 transition-all duration-200"
-              style={formData.sport === s.id
-                ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 20px rgba(200,255,0,0.4)' }
-                : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)' }
-              }
-            >
-              <span>{s.emoji}</span>
-              <span>{s.label}</span>
+      <form onSubmit={handleSubmit} className="space-y-4">
+
+        {/* Sport Selector */}
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+          {['tennis', 'pickleball', 'golf', 'tabletennis', 'badminton'].map(s => (
+            <button key={s} type="button" onClick={() => setFormData({ ...formData, sport: s })}
+              className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all duration-200 ${formData.sport === s ? 'bg-accent text-ink-900 border-accent glow-accent scale-105' : 'bg-white/5 border-white/10 text-ink-500 hover:border-white/20'}`}>
+              {s}
             </button>
           ))}
         </div>
 
-        <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="px-4 pt-4 pb-2 border-b border-white/5">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
-          </div>
-          <LocationSearch
-            courtName={formData.court_name}
-            city={formData.city}
-            province={formData.province}
-            onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
-            onCityChange={v => setFormData(f => ({ ...f, city: v }))}
-            onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
-          />
-        </div>
+        {/* Main Details Card */}
+        <div className="glass p-6 rounded-[2.5rem] border border-white/10 space-y-4 bg-gradient-to-br from-white/5 to-transparent">
 
-        <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="px-4 pt-4 pb-2 border-b border-white/5">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
+          {/* Location */}
+          <div className="flex items-center gap-3 bg-white/5 rounded-2xl px-4 border border-white/5 focus-within:border-accent/50 transition-colors">
+            <MapPin size={18} className="text-ink-600" />
+            <input
+              className="bg-transparent border-none w-full py-4 text-sm text-white focus:ring-0 placeholder:text-ink-700"
+              placeholder="Where did you play?"
+              value={formData.court_name}
+              onChange={e => setFormData({ ...formData, court_name: e.target.value })}
+              required
+            />
           </div>
+
+          {/* Opponent Tagging */}
           <div className="relative">
-            <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-              <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
+            <div className="flex items-center gap-3 bg-white/5 rounded-2xl px-4 border border-white/5 focus-within:border-accent/50 transition-colors">
+              <Users size={18} className={taggedUser ? 'text-accent' : 'text-ink-600'} />
               <input
-                className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-                style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
-                placeholder="Tag opponent (username)"
+                className="bg-transparent border-none w-full py-4 text-sm text-white focus:ring-0 placeholder:text-ink-700"
+                placeholder="Tag Opponent (Username)"
                 value={taggedUser ? `@${taggedUser.username}` : searchQuery}
-                onChange={e => { 
-                  setTaggedUser(null)
-                  setSearchQuery(e.target.value)
-                  setSearchResults([])
-                }}
+                onChange={e => { setTaggedUser(null); setSearchQuery(e.target.value) }}
               />
-              {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
+              {isSearching && <Loader2 size={14} className="animate-spin text-ink-600" />}
               {taggedUser && (
-                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]); }} className="shrink-0 text-red-400">
-                  <X size={15} />
+                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery('') }} className="text-spark p-1">
+                  <X size={16} />
                 </button>
               )}
             </div>
             {searchResults.length > 0 && !taggedUser && (
-              <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
+              <div className="absolute z-50 w-full mt-2 bg-ink-800 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
                 {searchResults.map(u => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      setTaggedUser(u)
-                      setSearchQuery('')
-                      setSearchResults([])
-                    }}
-                    className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
-                  >
-                    <div>
-                      <span className="font-bold text-white">@{u.username}</span>
-                      {u.full_name && (
-                        <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
-                          ({u.full_name})
-                        </span>
-                      )}
-                    </div>
-                    {(u.city || u.province) && (
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        📍 {u.city || u.province}
-                      </span>
-                    )}
+                  <button key={u.id} type="button"
+                    onClick={() => { setTaggedUser(u); setSearchResults([]) }}
+                    className="w-full text-left px-4 py-3 text-sm text-ink-100 hover:bg-accent hover:text-ink-900 transition-colors flex items-center justify-between border-b border-white/5 last:border-none">
+                    <span>@{u.username}</span>
+                    <Check size={14} className="opacity-50" />
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-            <Search size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
+          {/* Score */}
+          <div className="flex items-center gap-3 bg-white/5 rounded-2xl px-4 border border-white/5 focus-within:border-accent/50 transition-colors">
+            <Search size={18} className="text-ink-600" />
             <input
-              className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-              style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Final score e.g. 21-18, 21-15"
+              className="bg-transparent border-none w-full py-4 text-sm text-white focus:ring-0 placeholder:text-ink-700"
+              placeholder="Final Score (e.g. 6-2, 6-4)"
               value={formData.score}
               onChange={e => setFormData({ ...formData, score: e.target.value })}
             />
           </div>
-
-          <div className="px-4 py-3">
-            <textarea
-              className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
-              style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Add a caption (optional)..."
-              rows={3}
-              value={formData.content}
-              onChange={e => setFormData({ ...formData, content: e.target.value })}
-            />
-          </div>
         </div>
 
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
-          <div className="grid grid-cols-2 gap-3">
-            {['win', 'loss'].map(r => (
+        {/* Result Selector */}
+        <div className="grid grid-cols-2 gap-4">
+          {['win', 'loss'].map(res => (
+            <button key={res} type="button" onClick={() => setFormData({ ...formData, result: res })}
+              className={`py-5 rounded-[2rem] font-display font-bold uppercase italic border-2 transition-all duration-300 tracking-tighter text-lg ${formData.result === res ? (res === 'win' ? 'border-accent text-accent bg-accent/5 glow-accent' : 'border-spark text-spark bg-spark/5 shadow-[0_0_20px_rgba(255,50,50,0.1)]') : 'border-white/5 text-ink-800 opacity-50 hover:opacity-100'}`}>
+              {res}
+            </button>
+          ))}
+        </div>
+
+        {/* ── MEDIA UPLOAD ── */}
+        <div className="glass p-5 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/5 to-transparent space-y-3">
+          <p className="text-[10px] font-black uppercase text-ink-600">Add Photo or Video (optional)</p>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
+          {!mediaFile ? (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full flex flex-col items-center justify-center gap-3 py-8 rounded-2xl border-2 border-dashed border-white/10 text-ink-600 hover:border-accent/40 hover:text-accent transition-all"
+            >
+              <div className="flex gap-3">
+                <Image size={22} />
+                <Video size={22} />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                Tap to add photo or video
+              </span>
+              <span className="text-[9px] text-ink-700 uppercase">
+                JPG · PNG · MP4 · MOV · Max {MAX_FILE_MB}MB
+              </span>
+            </button>
+          ) : (
+            <div className="relative rounded-2xl overflow-hidden border border-white/10">
+              {mediaType === 'video' ? (
+                <video
+                  src={mediaPreview}
+                  controls
+                  className="w-full max-h-52 object-cover"
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={mediaPreview}
+                  alt="Preview"
+                  className="w-full max-h-52 object-cover"
+                />
+              )}
               <button
-                key={r}
                 type="button"
-                onClick={() => setFormData({ ...formData, result: r })}
-                className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
-                style={formData.result === r
-                  ? r === 'win'
-                    ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
-                    : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
-                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
-                }
+                onClick={clearMedia}
+                className="absolute top-2 right-2 p-1.5 rounded-full bg-ink-900/80 text-white border border-white/10 hover:bg-spark/80 transition-colors"
               >
-                {r.toUpperCase()}
+                <X size={14} />
               </button>
-            ))}
-          </div>
-          {formData.result === 'win' && !taggedUser && (
-            <div className="mt-3 px-4 py-2.5 rounded-2xl flex items-center gap-2"
-              style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
-              <span className="text-sm">⚠️</span>
-              <p className="text-[10px] font-bold" style={{ color: 'rgba(200,255,0,0.8)' }}>
-                Wins require a tagged opponent to count in rankings
-              </p>
+              <div className="absolute bottom-0 left-0 right-0 px-4 py-2 bg-ink-900/70 text-[9px] uppercase font-black text-ink-400 flex items-center gap-1.5">
+                {mediaType === 'video' ? <Video size={10} /> : <Image size={10} />}
+                {mediaFile.name}
+                <span className="ml-auto">{(mediaFile.size / 1024 / 1024).toFixed(1)}MB</span>
+              </div>
+            </div>
+          )}
+
+          {mediaError && (
+            <p className="text-spark text-[10px] font-bold uppercase tracking-wide">{mediaError}</p>
+          )}
+
+          {/* Upload progress bar (shown while uploading) */}
+          {loading && uploadProgress > 0 && uploadProgress < 100 && (
+            <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-accent h-full rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
             </div>
           )}
         </div>
 
-        <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>Intensity</p>
-          </div>
-          <div className="flex gap-2">
-            {[
-              { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
-              { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
-              { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
-            ].map(({ lvl, active, dot }) => (
-              <button
-                key={lvl}
-                type="button"
-                onClick={() => setFormData({ ...formData, intensity: lvl })}
-                className="flex-1 py-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-1.5"
-                style={formData.intensity === lvl
-                  ? active
-                  : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }
-                }
-              >
-                <span className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
-                {lvl}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
-          {mediaPreviews.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {mediaPreviews.map((m, i) => (
-                <div key={i} className="relative aspect-square rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.4)' }}>
-                  {m.type === 'video'
-                    ? <video src={m.url} className="w-full h-full object-cover" />
-                    : <img src={m.url} alt="" className="w-full h-full object-cover" />
-                  }
-                  <button
-                    type="button"
-                    onClick={() => removeMedia(i)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white"
-                    style={{ background: 'rgba(0,0,0,0.7)' }}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-xs font-bold border-2 border-dashed transition-colors"
-            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
-          >
-            <Image size={15} />
-            Add Photos or Video
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
-        </div>
-
+        {/* Submit */}
         <button
-          type="submit"
           disabled={loading}
-          className="w-full font-black py-6 rounded-[2.5rem] uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.97] disabled:opacity-50"
-          style={{
-            background: loading ? 'rgba(200,255,0,0.5)' : '#c8ff00',
-            color: '#0a0a0f',
-            boxShadow: '0 0 30px rgba(200,255,0,0.35)',
-          }}
+          className="w-full bg-accent text-ink-900 font-display font-black py-6 rounded-[2.5rem] glow-accent uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 active:scale-[0.97] transition-all disabled:opacity-50 disabled:grayscale mt-4"
         >
-          {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={22} /> Sync Game</>}
+          {loading
+            ? <Loader2 className="animate-spin" />
+            : <><Share2 size={24} /> Sync Game</>
+          }
         </button>
+
       </form>
     </div>
   )
