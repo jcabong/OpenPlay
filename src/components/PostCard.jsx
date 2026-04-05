@@ -37,7 +37,7 @@ function MentionInput({ value, onChange, submitting, placeholder = 'Comment… u
     const match = val.slice(0, pos).match(/@(\w*)$/)
     if (match && match[1].length >= 1) {
       const { data } = await supabase
-        .from('users').select('id, username, display_name').ilike('username', `${match[1]}%`).limit(5)
+        .from('users').select('id, username, display_name, avatar_url, avatar_type').ilike('username', `${match[1]}%`).limit(5)
       setResults(data || [])
       setShowDrop(true)
     } else {
@@ -68,8 +68,21 @@ function MentionInput({ value, onChange, submitting, placeholder = 'Comment… u
             {results.map(u => (
               <button key={u.id} type="button" onMouseDown={() => pickUser(u.username)}
                 className="w-full text-left px-4 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-none">
-                <p className="text-xs font-bold text-accent">@{u.username}</p>
-                {u.display_name && <p className="text-[10px] text-ink-400">{u.display_name}</p>}
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md overflow-hidden shrink-0">
+                    {u.avatar_url && u.avatar_type !== 'initials' ? (
+                      <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[8px] font-bold bg-accent/20 text-accent">
+                        {u.username.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-accent">@{u.username}</p>
+                    {u.display_name && <p className="text-[10px] text-ink-400">{u.display_name}</p>}
+                  </div>
+                </div>
               </button>
             ))}
           </div>
@@ -86,6 +99,7 @@ function MentionInput({ value, onChange, submitting, placeholder = 'Comment… u
 function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh }) {
   const username    = comment.users?.username || 'anon'
   const displayName = comment.users?.display_name || username
+  const hasAvatar = comment.users?.avatar_url && comment.users?.avatar_type !== 'initials'
   const hasLiked    = comment.comment_likes?.some(l => l.user_id === currentUser?.id)
   const likeCount   = comment.comment_likes?.length || 0
   const replies     = comment.comment_replies || []
@@ -130,54 +144,80 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
 
   return (
     <div className="space-y-1.5">
-      <div className="bg-white/5 px-3 py-2.5 rounded-xl border border-white/10">
-        <div className="flex-1 min-w-0">
-          <Link to={`/user/${username}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
-            {displayName}
-          </Link>
-          {displayName !== username && (
-            <span className="text-ink-600 text-[10px] mr-1.5">@{username}</span>
+      <div className="flex gap-2">
+        {/* Commenter Avatar */}
+        <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0">
+          {hasAvatar ? (
+            <img src={comment.users.avatar_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-[9px] font-bold bg-accent/20 text-accent">
+              {username.charAt(0).toUpperCase()}
+            </div>
           )}
-          <span className="text-ink-200 text-[11px] leading-relaxed">
-            <RichText text={comment.content} />
-          </span>
         </div>
-        <div className="flex items-center gap-3 mt-1.5">
-          <button onClick={toggleLike}
-            className={`flex items-center gap-1 text-[10px] font-black uppercase transition-colors ${hasLiked ? 'text-accent' : 'text-ink-600 hover:text-ink-300'}`}>
-            <Heart size={11} className={hasLiked ? 'fill-accent' : ''} />
-            GG {likeCount > 0 && `(${likeCount})`}
-          </button>
-          <button onClick={() => setShowReply(v => !v)}
-            className="flex items-center gap-1 text-[10px] font-black uppercase text-ink-600 hover:text-ink-300 transition-colors">
-            <CornerDownRight size={11} />
-            Reply
-          </button>
-          {replies.length > 0 && (
-            <button onClick={() => setShowReplies(v => !v)}
-              className="text-[10px] font-black uppercase text-ink-600 hover:text-accent transition-colors">
-              {showReplies ? 'Hide replies' : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+        
+        <div className="flex-1 bg-white/5 px-3 py-2.5 rounded-xl border border-white/10">
+          <div className="flex-1 min-w-0">
+            <Link to={`/user/${username}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
+              {displayName}
+            </Link>
+            {displayName !== username && (
+              <span className="text-ink-600 text-[10px] mr-1.5">@{username}</span>
+            )}
+            <span className="text-ink-200 text-[11px] leading-relaxed">
+              <RichText text={comment.content} />
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1.5">
+            <button onClick={toggleLike}
+              className={`flex items-center gap-1 text-[10px] font-black uppercase transition-colors ${hasLiked ? 'text-accent' : 'text-ink-600 hover:text-ink-300'}`}>
+              <Heart size={11} className={hasLiked ? 'fill-accent' : ''} />
+              GG {likeCount > 0 && `(${likeCount})`}
             </button>
-          )}
+            <button onClick={() => setShowReply(v => !v)}
+              className="flex items-center gap-1 text-[10px] font-black uppercase text-ink-600 hover:text-ink-300 transition-colors">
+              <CornerDownRight size={11} />
+              Reply
+            </button>
+            {replies.length > 0 && (
+              <button onClick={() => setShowReplies(v => !v)}
+                className="text-[10px] font-black uppercase text-ink-600 hover:text-accent transition-colors">
+                {showReplies ? 'Hide replies' : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {showReplies && replies.length > 0 && (
-        <div className="ml-4 space-y-1.5">
+        <div className="ml-8 space-y-1.5">
           {replies.map(r => {
             const rUsername    = r.users?.username || 'anon'
             const rDisplayName = r.users?.display_name || rUsername
+            const rHasAvatar = r.users?.avatar_url && r.users?.avatar_type !== 'initials'
             return (
-              <div key={r.id} className="bg-white/3 px-3 py-2 rounded-xl border border-white/5">
-                <Link to={`/user/${rUsername}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
-                  {rDisplayName}
-                </Link>
-                {rDisplayName !== rUsername && (
-                  <span className="text-ink-600 text-[9px] mr-1.5">@{rUsername}</span>
-                )}
-                <span className="text-ink-300 text-[10px] leading-relaxed">
-                  <RichText text={r.content} />
-                </span>
+              <div key={r.id} className="flex gap-2">
+                {/* Reply Avatar */}
+                <div className="w-5 h-5 rounded-lg overflow-hidden shrink-0">
+                  {rHasAvatar ? (
+                    <img src={r.users.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[8px] font-bold bg-accent/20 text-accent">
+                      {rUsername.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 bg-white/3 px-3 py-2 rounded-xl border border-white/5">
+                  <Link to={`/user/${rUsername}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
+                    {rDisplayName}
+                  </Link>
+                  {rDisplayName !== rUsername && (
+                    <span className="text-ink-600 text-[9px] mr-1.5">@{rUsername}</span>
+                  )}
+                  <span className="text-ink-300 text-[10px] leading-relaxed">
+                    <RichText text={r.content} />
+                  </span>
+                </div>
               </div>
             )
           })}
@@ -185,7 +225,7 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
       )}
 
       {showReply && (
-        <div className="ml-4">
+        <div className="ml-8">
           <form onSubmit={submitReply}>
             <MentionInput value={replyText} onChange={setReplyText} submitting={submitting}
               placeholder={`Reply to ${displayName}…`} />
@@ -215,7 +255,7 @@ export default function PostCard({ post, onRefresh }) {
   const commCount   = post.comments?.length || 0
   const username    = post.author?.username || 'anon'
   const displayName = post.author?.display_name || username
-  const initial     = displayName.charAt(0).toUpperCase()
+  const hasAvatar   = post.author?.avatar_url && post.author?.avatar_type !== 'initials'
   const isOwner     = user?.id === post.author_id
 
   useEffect(() => {
@@ -268,7 +308,7 @@ export default function PostCard({ post, onRefresh }) {
       post_id: post.id,
       user_id: user.id,
       content: newComment.trim(),
-    }]).select().single()
+    }]).select('*, users(id, username, display_name, avatar_url, avatar_type)').single()
 
     if (newComment.includes('@')) {
       await notifyMentions({
@@ -283,17 +323,21 @@ export default function PostCard({ post, onRefresh }) {
     onRefresh?.()
   }
 
-  const avatarColors = ['bg-accent text-ink-900','bg-spark text-white','bg-blue-500 text-white','bg-purple-500 text-white']
-  const avatarColor  = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
-
   return (
     <article className="glass rounded-[2.5rem] p-5 border border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent animate-slide-up">
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <Link to={`/user/${username}`} className="flex items-center gap-3 flex-1 min-w-0 group">
-          <div className={`w-10 h-10 rounded-[0.75rem] flex items-center justify-center font-bold text-sm shrink-0 ${avatarColor}`}>
-            {initial}
+          {/* Author Avatar */}
+          <div className="w-10 h-10 rounded-[0.75rem] overflow-hidden shrink-0">
+            {hasAvatar ? (
+              <img src={post.author.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center font-bold text-sm bg-accent text-ink-900">
+                {displayName.charAt(0).toUpperCase()}
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-ink-50 font-display font-bold text-sm tracking-tight leading-none mb-0.5 group-hover:text-accent transition-colors">
@@ -439,9 +483,22 @@ export default function PostCard({ post, onRefresh }) {
               ))}
             </div>
           )}
-          <form onSubmit={submitComment}>
-            <MentionInput value={newComment} onChange={setNewComment} submitting={submitting} />
-          </form>
+          
+          {/* Add Comment Section with Avatar */}
+          <div className="flex gap-2">
+            <div className="w-7 h-7 rounded-lg overflow-hidden shrink-0">
+              {profile?.avatar_url && profile?.avatar_type !== 'initials' ? (
+                <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] font-bold bg-accent/20 text-accent">
+                  {(profile?.username || 'U').charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <form onSubmit={submitComment} className="flex-1">
+              <MentionInput value={newComment} onChange={setNewComment} submitting={submitting} />
+            </form>
+          </div>
         </div>
       )}
     </article>
