@@ -1,3 +1,4 @@
+
 import { useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { MapPin, Navigation, Loader2, X } from 'lucide-react'
@@ -141,15 +142,34 @@ export default function UsernameSetup({ user, onComplete }) {
     setLoading(true)
     setError('')
 
+    console.log('🟡 Updating user:', user.id)
+    console.log('🟡 With data:', { 
+      username: username.toLowerCase().trim(), 
+      city,
+      avatar_type: 'initials' 
+    })
+
     const { error: updateError } = await supabase
       .from('users')
-      .update({ username: username.toLowerCase().trim(), city })
+      .update({ 
+        username: username.toLowerCase().trim(), 
+        city,
+        avatar_type: 'initials'
+      })
       .eq('id', user.id)
 
+    console.log('🟡 Update result error:', updateError)
+
     if (updateError) {
-      setError(updateError.message.includes('unique') ? 'Username is already taken!' : 'Something went wrong. Try again.')
+      console.error('🔴 Update error details:', updateError)
+      if (updateError.message.includes('unique')) {
+        setError('Username is already taken!')
+      } else {
+        setError('Something went wrong. Please try again.')
+      }
       setLoading(false)
     } else {
+      console.log('🟢 Username setup successful!')
       onComplete()
     }
   }
