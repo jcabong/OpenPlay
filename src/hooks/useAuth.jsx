@@ -11,7 +11,6 @@ export function AuthProvider({ children }) {
   async function fetchProfile(userId, retryCount = 0) {
     try {
       console.log('🟡 Fetching profile for:', userId, 'attempt:', retryCount)
-      // Changed from .single() to .maybeSingle() to avoid 406 errors
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -20,24 +19,30 @@ export function AuthProvider({ children }) {
       
       if (error) {
         console.log('🔴 Profile fetch error:', error.message)
-        // Retry up to 3 times with delay
         if (retryCount < 3) {
           console.log('🟡 Retrying profile fetch...')
           setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
           return
         }
         setProfile(null)
-      } else if (!data) {
+        setLoading(false)
+        return
+      }
+      
+      if (!data) {
         console.log('🟡 Profile not found yet, retrying...')
         if (retryCount < 3) {
           setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
           return
         }
         setProfile(null)
-      } else {
-        console.log('🟢 Profile fetched:', data.username || 'no username yet')
-        setProfile(data)
+        setLoading(false)
+        return
       }
+      
+      console.log('🟢 Profile fetched:', data.username || 'no username yet')
+      setProfile(data)
+      setLoading(false)
     } catch (err) {
       console.error('🔴 fetchProfile exception:', err)
       if (retryCount < 3) {
@@ -45,7 +50,6 @@ export function AuthProvider({ children }) {
         return
       }
       setProfile(null)
-    } finally {
       setLoading(false)
     }
   }
@@ -55,7 +59,6 @@ export function AuthProvider({ children }) {
 
     const initAuth = async () => {
       try {
-        // Get session
         const { data: { session } } = await supabase.auth.getSession()
         console.log('🟢 Session after init:', session?.user?.id)
         
