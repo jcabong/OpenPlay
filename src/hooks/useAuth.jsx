@@ -6,17 +6,21 @@ const AuthContext = createContext({})
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null)
   const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true) // true until BOTH auth + profile are resolved
+  const [loading, setLoading] = useState(true)
   const isMountedRef          = useRef(true)
   const fetchingRef           = useRef(false)
-  const initializedRef        = useRef(false)  // ensures initAuth only runs once
+  const lastUserIdRef         = useRef(null)   // tracks which user we last fetched for
 
   // ─── Fetch profile ────────────────────────────────────────────────────────
   async function fetchProfile(userId) {
-    // Allow re-fetch if explicitly called (e.g. refreshProfile)
-    // but block duplicate concurrent calls
-    if (fetchingRef.current) return
+    // If already fetching for this exact user, skip — don't hang
+    if (fetchingRef.current && lastUserIdRef.current === userId) {
+      console.log('⏭ Skipping duplicate fetch for:', userId)
+      return
+    }
     fetchingRef.current = true
+    lastUserIdRef.current = userId
+
     try {
       console.log('🟡 Fetching profile for:', userId)
       const { data, error } = await supabase
@@ -46,40 +50,44 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     isMountedRef.current = true
 
-    // ── Safety timeout ────────────────────────────────────────────────────
+    // Safety timeout — last resort if something still goes wrong
     const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current && loading) {
+      if (isMountedRef.current) {
         console.warn('⚠️ Safety timeout fired — forcing loading:false')
         setLoading(false)
       }
-    }, 6000)
+    }, 8000)
 
     // ── onAuthStateChange is the single source of truth ───────────────────
-    // We do NOT call initAuth separately — instead we let the listener fire
-    // INITIAL_SESSION (which Supabase always emits on mount) to kick everything off.
-    // This eliminates the race between initAuth + the listener both calling fetchProfile.
+    // Supabase fires INITIAL_SESSION on mount, then SIGNED_IN after OAuth.
+    // We deduplicate by checking if we're already fetching for the same userId.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🟡 Auth state change:', event, session?.user?.id ?? 'none')
 
       if (!isMountedRef.current) return
 
+      // SIGNED_OUT — clear everything immediately
+      if (event === 'SIGNED_OUT') {
+        setUser(null)
+        setProfile(null)
+        setLoading(false)
+        fetchingRef.current = false
+        lastUserIdRef.current = null
+        clearTimeout(safetyTimeout)
+        return
+      }
+
       const currentUser = session?.user ?? null
       setUser(currentUser)
 
       if (currentUser) {
-        // Reset fetch lock so a fresh fetch always runs on auth events
-        fetchingRef.current = false
         await fetchProfile(currentUser.id)
       } else {
         setProfile(null)
         setLoading(false)
       }
 
-      // Clear safety timeout once we've had our first auth event
-      if (!initializedRef.current) {
-        initializedRef.current = true
-        clearTimeout(safetyTimeout)
-      }
+      clearTimeout(safetyTimeout)
     })
 
     // ── Visibility handler ────────────────────────────────────────────────
@@ -92,6 +100,7 @@ export function AuthProvider({ children }) {
           if (isMountedRef.current) {
             setUser(currentUser)
             if (currentUser) {
+              // Force re-fetch on foreground (user may have changed)
               fetchingRef.current = false
               await fetchProfile(currentUser.id)
             } else {
@@ -128,24 +137,16 @@ export function AuthProvider({ children }) {
     window.location.href = '/login'
   }
 
-  // refreshProfile — call this anywhere after updating the users table
-  // e.g. after UsernameSetup saves, or after Edit Profile saves city/region
   const refreshProfile = () => {
     if (user) {
-      fetchingRef.current = false  // force unlock so re-fetch always runs
+      fetchingRef.current = false      // unlock so refresh always runs
+      lastUserIdRef.current = null     // clear dedup so re-fetch is allowed
       fetchProfile(user.id)
     }
   }
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      profile,
-      loading,
-      signInWithGoogle,
-      signOut,
-      refreshProfile,
-    }}>
+    <AuthContext.Provider value={{ user, profile, loading, signInWithGoogle, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
