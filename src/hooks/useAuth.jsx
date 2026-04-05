@@ -4,13 +4,13 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null)
+  const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  async function fetchProfile(userId, retryCount = 0) {
+  async function fetchProfile(userId) {
     try {
-      console.log('🟡 Fetching profile for:', userId, 'attempt:', retryCount)
+      console.log('🟡 Fetching profile for:', userId)
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -19,43 +19,24 @@ export function AuthProvider({ children }) {
       
       if (error) {
         console.log('🔴 Profile fetch error:', error.message)
-        if (retryCount < 3) {
-          setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
-          return
-        }
         setProfile(null)
-        setLoading(false)
-        return
-      }
-      
-      if (!data) {
-        console.log('🟡 Profile not found yet, retrying...')
-        if (retryCount < 3) {
-          setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
-          return
-        }
+      } else if (!data) {
+        console.log('🟡 Profile not found yet')
         setProfile(null)
-        setLoading(false)
-        return
+      } else {
+        console.log('🟢 Profile fetched:', data.username || 'no username yet')
+        setProfile(data)
       }
-      
-      console.log('🟢 Profile fetched:', data.username || 'no username yet')
-      setProfile(data)
-      setLoading(false)
     } catch (err) {
       console.error('🔴 fetchProfile exception:', err)
-      if (retryCount < 3) {
-        setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
-        return
-      }
       setProfile(null)
+    } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
     let isMounted = true
-    let safetyTimeout
 
     const initAuth = async () => {
       try {
@@ -78,13 +59,6 @@ export function AuthProvider({ children }) {
 
     initAuth()
 
-    safetyTimeout = setTimeout(() => {
-      if (isMounted && loading) {
-        console.log('⚠️ Safety timeout: forcing loading to false')
-        setLoading(false)
-      }
-    }, 5000)
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🟡 Auth state change:', event, session?.user?.id)
       if (isMounted) {
@@ -100,28 +74,17 @@ export function AuthProvider({ children }) {
 
     return () => {
       isMounted = false
-      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [])
 
   async function signInWithGoogle() {
-    try {
-      console.log('🟡 Starting Google sign in...')
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { 
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      })
-      if (error) {
-        console.error('🔴 Google sign in error:', error)
-        alert('Failed to sign in: ' + error.message)
-      }
-    } catch (err) {
-      console.error('🔴 Sign in exception:', err)
-      alert('Failed to sign in. Please try again.')
-    }
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
   }
 
   async function signOut() {

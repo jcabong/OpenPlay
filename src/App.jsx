@@ -22,36 +22,22 @@ function ProtectedRoutes() {
   const [checking, setChecking]       = useState(false)
 
   useEffect(() => {
-    console.log('🔵 ProtectedRoutes - loading:', loading)
-    console.log('🔵 ProtectedRoutes - user:', user?.id)
-    
     if (loading) return
     if (!user) {
-      console.log('🔵 No user, setting checking false')
       setChecking(false)
       return
     }
 
     async function checkProfile() {
-      console.log('🔵 Checking profile for user:', user.id)
       setChecking(true)
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('users')
           .select('username')
           .eq('id', user.id)
-          .single()
-        
-        console.log('🔵 Profile check result:', { data, error })
-        
-        if (error) {
-          console.log('🔵 Error fetching profile:', error.message)
-        }
-        
+          .maybeSingle()
         setHasUsername(!!data?.username)
-        console.log('🔵 hasUsername:', !!data?.username)
-      } catch (err) {
-        console.error('🔴 Profile check error:', err)
+      } catch {
         setHasUsername(false)
       } finally {
         setChecking(false)
@@ -60,25 +46,18 @@ function ProtectedRoutes() {
     checkProfile()
   }, [user, loading])
 
-  console.log('🔵 Rendering state - loading:', loading, 'checking:', checking, 'user:', !!user, 'hasUsername:', hasUsername)
-
   if (loading || checking) return <LoadingScreen />
   if (!user)               return <Navigate to="/login" replace />
 
   if (!hasUsername) {
-    console.log('🔵 Showing UsernameSetup')
     return (
       <UsernameSetup
         user={user}
-        onComplete={() => {
-          console.log('🔵 UsernameSetup completed, setting hasUsername to true')
-          setHasUsername(true)
-        }}
+        onComplete={() => setHasUsername(true)}
       />
     )
   }
 
-  console.log('🔵 Showing main Layout')
   return (
     <Layout>
       <Routes>

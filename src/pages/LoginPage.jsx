@@ -6,13 +6,12 @@ import { supabase, SPORTS } from '../lib/supabase'
 export default function LoginPage() {
   const { signInWithGoogle } = useAuth()
   const navigate = useNavigate()
-  const [isLogin, setIsLogin] = useState(true) // true = Sign In, false = Sign Up
+  const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Check if already logged in
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -23,7 +22,6 @@ export default function LoginPage() {
     checkSession()
   }, [navigate])
 
-  // Email Sign Up (for new users)
   async function handleEmailSignUp(e) {
     e.preventDefault()
     setLoading(true)
@@ -40,30 +38,26 @@ export default function LoginPage() {
     if (error) {
       setError(error.message)
     } else {
-      alert('✅ Check your email for confirmation link!\n\nAfter confirming, sign in with Google or Email.')
+      alert('✅ Check your email for confirmation link!')
       setEmail('')
       setPassword('')
     }
     setLoading(false)
   }
 
-  // Google Sign In (for existing users)
   async function handleGoogleSignIn() {
     setLoading(true)
     await signInWithGoogle()
-    // No need to set loading false because page redirects
   }
 
   return (
     <div className="min-h-screen bg-ink-900 flex flex-col relative overflow-hidden">
-      {/* Background decoration */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-accent/5 blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-[500px] h-[500px] rounded-full bg-spark/5 blur-3xl" />
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
-        {/* Logo */}
         <div className="mb-10 text-center">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-[2rem] bg-ink-700 border border-white/10 mb-4">
             <span className="text-4xl">🏸</span>
@@ -74,7 +68,6 @@ export default function LoginPage() {
           <p className="text-ink-400 text-xs">Track your game. Climb the ranks.</p>
         </div>
 
-        {/* Sport badges */}
         <div className="flex flex-wrap gap-2 justify-center mb-8">
           {SPORTS.map(s => (
             <div key={s.id} className="glass rounded-2xl px-3 py-1.5 flex items-center gap-1">
@@ -84,7 +77,6 @@ export default function LoginPage() {
           ))}
         </div>
 
-        {/* Toggle between Sign In and Sign Up */}
         <div className="flex gap-2 mb-6 w-full max-w-sm">
           <button
             onClick={() => { setIsLogin(true); setError('') }}
@@ -100,7 +92,6 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {/* Sign In Section - Google Only */}
         {isLogin ? (
           <div className="w-full max-w-sm space-y-4">
             <button
@@ -124,7 +115,6 @@ export default function LoginPage() {
             </p>
           </div>
         ) : (
-          /* Sign Up Section - Email/Password */
           <form onSubmit={handleEmailSignUp} className="w-full max-w-sm space-y-4">
             <input
               type="email"
