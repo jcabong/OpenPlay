@@ -20,7 +20,6 @@ export function AuthProvider({ children }) {
       if (error) {
         console.log('🔴 Profile fetch error:', error.message)
         if (retryCount < 3) {
-          console.log('🟡 Retrying profile fetch...')
           setTimeout(() => fetchProfile(userId, retryCount + 1), 1500)
           return
         }
@@ -56,6 +55,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let isMounted = true
+    let safetyTimeout
 
     const initAuth = async () => {
       try {
@@ -78,6 +78,14 @@ export function AuthProvider({ children }) {
 
     initAuth()
 
+    // Safety timeout - force loading to false after 5 seconds
+    safetyTimeout = setTimeout(() => {
+      if (isMounted && loading) {
+        console.log('⚠️ Safety timeout: forcing loading to false');
+        setLoading(false);
+      }
+    }, 5000)
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🟡 Auth state change:', event, session?.user?.id)
       if (isMounted) {
@@ -93,6 +101,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       isMounted = false
+      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [])
