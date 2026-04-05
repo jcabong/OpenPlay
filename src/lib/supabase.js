@@ -9,10 +9,11 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    persistSession: true,      // keep session alive across page reloads
-    autoRefreshToken: true,    // silently refresh token before it expires
-    storageKey: 'openplay-auth', // consistent key so iOS PWA doesn't lose it on kill
-    detectSessionInUrl: true,  // needed for OAuth (Google) callback to work
+    persistSession: true,
+    autoRefreshToken: true,
+    storageKey: 'openplay-auth',
+    detectSessionInUrl: true,
+    flowType: 'pkce',
   },
 })
 

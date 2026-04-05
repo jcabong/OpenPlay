@@ -8,23 +8,47 @@ export default function AuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const hash = window.location.hash
-        const params = new URLSearchParams(hash.substring(1))
-        const accessToken = params.get('access_token')
-        const refreshToken = params.get('refresh_token')
+        // Handle PKCE code exchange (query string)
+        const params = new URLSearchParams(window.location.search)
+        const code = params.get('code')
 
-        if (accessToken && refreshToken) {
-          const { error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          })
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
           if (error) throw error
+          navigate('/', { replace: true })
+          return
         }
 
-        navigate('/')
+        // Handle implicit flow fallback (hash tokens)
+        const hash = window.location.hash
+        if (hash) {
+          const hashParams = new URLSearchParams(hash.substring(1))
+          const accessToken = hashParams.get('access_token')
+          const refreshToken = hashParams.get('refresh_token')
+
+          if (accessToken && refreshToken) {
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            })
+            if (error) throw error
+            navigate('/', { replace: true })
+            return
+          }
+        }
+
+        // No tokens found — onAuthStateChange will handle it
+        // Just wait briefly for Supabase to pick up the session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          navigate('/', { replace: true })
+        } else {
+          navigate('/login', { replace: true })
+        }
+
       } catch (err) {
-        console.error('Callback error:', err)
-        navigate('/login')
+        console.error('Auth callback error:', err)
+        navigate('/login', { replace: true })
       }
     }
 
