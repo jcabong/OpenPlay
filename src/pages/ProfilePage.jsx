@@ -114,16 +114,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
         </button>
       </div>
     </div>
-
-      {showAvatarPicker && (
-        <AvatarPicker
-          currentUrl={avatarUrl}
-          currentType={avatarType}
-          onSave={saveAvatar}
-          onClose={() => setShowAvatarPicker(false)}
-        />
-      )}
-    </div>
   )
 }
 
@@ -376,6 +366,16 @@ export default function ProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Avatar Picker Modal - MOVED OUTSIDE the main div */}
+      {showAvatarPicker && (
+        <AvatarPicker
+          currentUrl={avatarUrl}
+          currentType={avatarType}
+          onSave={saveAvatar}
+          onClose={() => setShowAvatarPicker(false)}
+        />
+      )}
     </div>
   )
 }
