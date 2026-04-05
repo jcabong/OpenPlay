@@ -104,6 +104,11 @@ export default function FeedPage() {
   const [sport, setSport]             = useState('all')
   const observerRef                   = useRef(null)
   const lastPostRef                   = useRef(null)
+  
+  // Pull to refresh states
+  const [refreshing, setRefreshing] = useState(false)
+  const [startY, setStartY] = useState(0)
+  const feedContainerRef = useRef(null)
 
   // Composer
   const [content, setContent]               = useState('')
@@ -191,6 +196,28 @@ export default function FeedPage() {
 
     return () => observer.disconnect()
   }, [loading, loadingMore, hasMore, posts.length, sport])
+
+  // Pull to refresh handlers
+  const handleTouchStart = (e) => {
+    if (window.scrollY === 0 && !refreshing) {
+      setStartY(e.touches[0].clientY)
+    }
+  }
+
+  const handleTouchMove = (e) => {
+    if (window.scrollY === 0 && !refreshing && startY > 0) {
+      const diff = e.touches[0].clientY - startY
+      if (diff > 60) {
+        setRefreshing(true)
+        fetchFeed(true)
+        setTimeout(() => setRefreshing(false), 1000)
+      }
+    }
+  }
+
+  const handleTouchEnd = () => {
+    setStartY(0)
+  }
 
   // Real-time subscriptions
   useEffect(() => {
@@ -317,7 +344,13 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div 
+      className="min-h-screen"
+      ref={feedContainerRef}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5 pt-2">
@@ -335,6 +368,14 @@ export default function FeedPage() {
           <RefreshCw size={15} />
         </button>
       </div>
+
+      {/* Pull to refresh indicator */}
+      {refreshing && (
+        <div className="flex justify-center py-4 mb-2">
+          <Loader2 className="animate-spin text-accent" size={20} />
+          <span className="text-xs text-ink-500 ml-2">Refreshing...</span>
+        </div>
+      )}
 
       {/* Sport filter tabs */}
       <div className="flex gap-2 pb-4 overflow-x-auto no-scrollbar">
