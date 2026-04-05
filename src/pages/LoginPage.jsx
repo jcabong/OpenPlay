@@ -1,13 +1,75 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { SPORTS } from '../lib/supabase'
+import { supabase, SPORTS } from '../lib/supabase'
 
 export default function LoginPage() {
   const { user, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
+  const [isProcessing, setIsProcessing] = useState(false)
 
-  useEffect(() => { if (user) navigate('/', { replace: true }) }, [user])
+  // Handle redirect after OAuth
+  useEffect(() => {
+    // Check if we're returning from OAuth redirect
+    const hash = window.location.hash
+    const params = new URLSearchParams(window.location.search)
+    const isOAuthReturn = hash.includes('access_token') || params.get('code')
+    
+    if (isOAuthReturn) {
+      setIsProcessing(true)
+      // Wait for session to be established
+      const checkSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          // Wait 2 seconds for database trigger to create user record
+          setTimeout(() => {
+            window.location.href = '/'
+          }, 2000)
+        }
+      }
+      checkSession()
+    }
+  }, [])
+
+  // Handle existing user redirect
+  useEffect(() => {
+    if (!user) return
+    
+    const redirectAfterLogin = async () => {
+      setIsProcessing(true)
+      
+      // Wait for database trigger to create user record (important for new users)
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Check if user has username
+      const { data } = await supabase
+        .from('users')
+        .select('username')
+        .eq('id', user.id)
+        .single()
+      
+      if (data?.username) {
+        navigate('/', { replace: true })
+      } else {
+        navigate('/', { replace: true }) // ProtectedRoutes will show UsernameSetup
+      }
+      setIsProcessing(false)
+    }
+    
+    redirectAfterLogin()
+  }, [user, navigate])
+
+  // Show loading spinner while processing OAuth
+  if (isProcessing) {
+    return (
+      <div className="min-h-screen bg-ink-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-ink-400 text-sm">Setting up your account...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-ink-900 flex flex-col relative overflow-hidden">
