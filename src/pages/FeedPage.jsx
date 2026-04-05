@@ -6,6 +6,7 @@ import { Loader2, RefreshCw, Image, Send, X, Hash, MapPin, Navigation } from 'lu
 import PostCard from '../components/PostCard'
 
 const ALL_SPORTS = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
+const POSTS_PER_PAGE = 10
 
 // ── Mention-aware Textarea ──────────────────────────────────────────────────
 function MentionTextarea({ value, onChange, placeholder }) {
@@ -74,7 +75,12 @@ export default function FeedPage() {
   const { user, profile } = useAuth()
   const [posts, setPosts]             = useState([])
   const [loading, setLoading]         = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore]         = useState(true)
+  const [page, setPage]               = useState(0)
   const [sport, setSport]             = useState('all')
+  const observerRef                   = useRef(null)
+  const lastPostRef                   = useRef(null)
 
   // Composer
   const [content, setContent]               = useState('')
@@ -89,8 +95,18 @@ export default function FeedPage() {
   const [gpsLoading, setGpsLoading]         = useState(false)
   const fileInputRef = useRef(null)
 
-  const fetchFeed = useCallback(async () => {
-    setLoading(true)
+  // Fetch initial feed
+  const fetchFeed = useCallback(async (isReset = true) => {
+    if (isReset) {
+      setLoading(true)
+      setPage(0)
+      setPosts([])
+      setHasMore(true)
+    }
+
+    const from = isReset ? 0 : page * POSTS_PER_PAGE
+    const to = from + POSTS_PER_PAGE - 1
+
     let q = supabase
       .from('posts')
       .select(`
@@ -101,27 +117,68 @@ export default function FeedPage() {
       `)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .range(from, to)
 
     if (sport !== 'all') q = q.eq('sport', sport)
 
     const { data, error } = await q
-    if (error) console.error('Feed error:', error.message)
-    else setPosts(data || [])
-    setLoading(false)
+    if (error) {
+      console.error('Feed error:', error.message)
+      if (isReset) setLoading(false)
+      else setLoadingMore(false)
+      return
+    }
+
+    if (isReset) {
+      setPosts(data || [])
+      setLoading(false)
+    } else {
+      setPosts(prev => [...prev, ...(data || [])])
+      setLoadingMore(false)
+    }
+
+    setHasMore(data?.length === POSTS_PER_PAGE)
+    if (data?.length === POSTS_PER_PAGE) {
+      setPage(prev => prev + 1)
+    }
+  }, [sport, page])
+
+  // Reset when sport changes
+  useEffect(() => {
+    fetchFeed(true)
   }, [sport])
 
-  useEffect(() => { fetchFeed() }, [fetchFeed])
+  // Set up intersection observer for infinite scroll
+  useEffect(() => {
+    if (loading || loadingMore || !hasMore) return
 
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          setLoadingMore(true)
+          fetchFeed(false)
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    )
+
+    if (lastPostRef.current) {
+      observer.observe(lastPostRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [loading, loadingMore, hasMore, posts.length, sport])
+
+  // Real-time subscriptions
   useEffect(() => {
     const channel = supabase
       .channel('posts-feed-v4')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchFeed)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, fetchFeed)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, fetchFeed)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchFeed(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => fetchFeed(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => fetchFeed(true))
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [fetchFeed])
+  }, [])
 
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
@@ -186,10 +243,12 @@ export default function FeedPage() {
     return { urls, types }
   }
 
-  // ── Composer display info ──
+  // Composer display info
   const username = profile?.username || user?.email?.split('@')[0] || 'You'
   const initial = username.charAt(0).toUpperCase()
   const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
+  const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
   const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
 
   async function handlePost() {
@@ -214,7 +273,6 @@ export default function FeedPage() {
 
       if (error) throw error
 
-      // Notify any @mentions in the post body
       if (content.includes('@') && newPost) {
         await notifyMentions({
           text:     content.trim(),
@@ -224,7 +282,7 @@ export default function FeedPage() {
       }
 
       resetComposer()
-      fetchFeed()
+      fetchFeed(true)
     } catch (err) {
       alert('Failed to post: ' + err.message)
     } finally {
@@ -244,7 +302,7 @@ export default function FeedPage() {
           </p>
         </div>
         <button
-          onClick={fetchFeed}
+          onClick={() => fetchFeed(true)}
           className="p-2.5 rounded-xl border border-white/10 transition-colors hover:border-white/20"
           style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}
         >
@@ -269,7 +327,7 @@ export default function FeedPage() {
         ))}
       </div>
 
-      {/* ── Composer ── */}
+      {/* Composer */}
       {user && (
         <div className="mb-5">
           {!composerOpen ? (
@@ -278,7 +336,6 @@ export default function FeedPage() {
               className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all hover:border-white/20"
               style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
             >
-              {/* Avatar with support for custom or default */}
               <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
                 {hasAvatar ? (
                   <img 
@@ -301,9 +358,7 @@ export default function FeedPage() {
             <div className="rounded-3xl border overflow-hidden"
               style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)' }}>
 
-              {/* Composer header */}
               <div className="flex items-center gap-3 px-4 pt-4 pb-2">
-                {/* Avatar with support for custom or default */}
                 <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
                   {hasAvatar ? (
                     <img 
@@ -335,7 +390,6 @@ export default function FeedPage() {
                 </div>
               </div>
 
-              {/* Caption textarea with @mention support */}
               <div className="px-4 py-2">
                 <MentionTextarea
                   value={content}
@@ -344,7 +398,6 @@ export default function FeedPage() {
                 />
               </div>
 
-              {/* Media previews */}
               {mediaPreviews.length > 0 && (
                 <div className="grid grid-cols-4 gap-1.5 px-4 pb-3">
                   {mediaPreviews.map((m, i) => (
@@ -366,7 +419,6 @@ export default function FeedPage() {
                 </div>
               )}
 
-              {/* Location input */}
               {showLocationInput && (
                 <div className="mx-4 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border"
                   style={{ background: 'rgba(200,255,0,0.05)', borderColor: 'rgba(200,255,0,0.2)' }}>
@@ -383,7 +435,6 @@ export default function FeedPage() {
                 </div>
               )}
 
-              {/* Sport picker dropdown */}
               {showSportPicker && (
                 <div className="mx-4 mb-3 rounded-2xl border overflow-hidden"
                   style={{ background: 'rgba(0,0,0,0.4)', borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -410,11 +461,9 @@ export default function FeedPage() {
                 </div>
               )}
 
-              {/* Action bar */}
               <div className="flex items-center justify-between px-4 py-3 border-t"
                 style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                 <div className="flex items-center gap-1">
-                  {/* Photo */}
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="p-2 rounded-xl transition-colors hover:bg-white/5"
@@ -425,7 +474,6 @@ export default function FeedPage() {
                   </button>
                   <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
 
-                  {/* Tag sport */}
                   <button
                     onClick={() => setShowSportPicker(!showSportPicker)}
                     className="p-2 rounded-xl transition-colors hover:bg-white/5"
@@ -435,7 +483,6 @@ export default function FeedPage() {
                     <Hash size={18} />
                   </button>
 
-                  {/* Tag location */}
                   <button
                     onClick={() => showLocationInput ? setShowLocationInput(false) : detectLocation()}
                     className="p-2 rounded-xl transition-colors hover:bg-white/5"
@@ -446,7 +493,6 @@ export default function FeedPage() {
                     {gpsLoading ? <Loader2 size={18} className="animate-spin" /> : <Navigation size={18} />}
                   </button>
 
-                  {/* Cancel */}
                   <button
                     onClick={resetComposer}
                     className="px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-white/5 ml-1"
@@ -470,7 +516,7 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* ── Posts ── */}
+      {/* Posts with Infinite Scroll */}
       {loading ? (
         <div className="flex justify-center py-20">
           <Loader2 className="animate-spin" size={28} style={{ color: '#c8ff00' }} />
@@ -483,9 +529,20 @@ export default function FeedPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {posts.map(post => (
-            <PostCard key={post.id} post={post} onRefresh={fetchFeed} />
+          {posts.map((post, index) => (
+            <div
+              key={post.id}
+              ref={index === posts.length - 1 ? lastPostRef : null}
+            >
+              <PostCard post={post} onRefresh={() => fetchFeed(true)} />
+            </div>
           ))}
+          {loadingMore && (
+            <div className="flex justify-center py-4">
+              <Loader2 className="animate-spin" size={20} style={{ color: '#c8ff00' }} />
+              <span className="text-xs text-ink-500 ml-2">Loading more...</span>
+            </div>
+          )}
         </div>
       )}
     </div>
