@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight } from 'lucide-react'
+import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight, Twitter, Facebook } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { notifyMentions } from '../hooks/useNotifications'
@@ -145,7 +145,6 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
   return (
     <div className="space-y-1.5">
       <div className="flex gap-2">
-        {/* Commenter Avatar */}
         <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0">
           {hasAvatar ? (
             <img src={comment.users.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -197,7 +196,6 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
             const rHasAvatar = r.users?.avatar_url && r.users?.avatar_type !== 'initials'
             return (
               <div key={r.id} className="flex gap-2">
-                {/* Reply Avatar */}
                 <div className="w-5 h-5 rounded-lg overflow-hidden shrink-0">
                   {rHasAvatar ? (
                     <img src={r.users.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -247,7 +245,9 @@ export default function PostCard({ post, onRefresh }) {
   const [editing, setEditing]             = useState(false)
   const [editContent, setEditContent]     = useState(post.content || '')
   const [saving, setSaving]               = useState(false)
+  const [showShareMenu, setShowShareMenu] = useState(false)
   const menuRef                           = useRef(null)
+  const shareMenuRef                      = useRef(null)
 
   const sport       = SPORT_MAP[post.sport] || {}
   const hasLiked    = post.likes?.some(l => l.user_id === user?.id)
@@ -258,9 +258,11 @@ export default function PostCard({ post, onRefresh }) {
   const hasAvatar   = post.author?.avatar_url && post.author?.avatar_type !== 'initials'
   const isOwner     = user?.id === post.author_id
 
+  // Close menus when clicking outside
   useEffect(() => {
     function outside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target)) setShowShareMenu(false)
     }
     document.addEventListener('mousedown', outside)
     return () => document.removeEventListener('mousedown', outside)
@@ -323,13 +325,46 @@ export default function PostCard({ post, onRefresh }) {
     onRefresh?.()
   }
 
+  // Share functions
+  const getShareText = () => {
+    const sportEmoji = sport.emoji || '🏸'
+    const result = post.content ? post.content.substring(0, 100) : `Check out my ${sport.label || 'match'} on OpenPlay!`
+    return `${sportEmoji} ${result}`
+  }
+
+  const getShareUrl = () => {
+    return `${window.location.origin}/user/${username}`
+  }
+
+  const shareToTwitter = () => {
+    const text = encodeURIComponent(getShareText())
+    const url = encodeURIComponent(getShareUrl())
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'width=600,height=400')
+    setShowShareMenu(false)
+  }
+
+  const shareToFacebook = () => {
+    const url = encodeURIComponent(getShareUrl())
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${url}`, '_blank', 'width=600,height=400')
+    setShowShareMenu(false)
+  }
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl())
+      alert('Link copied to clipboard!')
+    } catch (err) {
+      console.error('Copy failed:', err)
+    }
+    setShowShareMenu(false)
+  }
+
   return (
     <article className="glass rounded-[2.5rem] p-5 border border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent animate-slide-up">
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
         <Link to={`/user/${username}`} className="flex items-center gap-3 flex-1 min-w-0 group">
-          {/* Author Avatar */}
           <div className="w-10 h-10 rounded-[0.75rem] overflow-hidden shrink-0">
             {hasAvatar ? (
               <img src={post.author.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -467,9 +502,42 @@ export default function PostCard({ post, onRefresh }) {
           <MessageCircle size={15} />
           Comments {commCount > 0 && `(${commCount})`}
         </button>
-        <button className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-ink-300 hover:text-white transition-all px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 ml-auto">
-          <Share2 size={14} />
-        </button>
+        
+        {/* Share Button with Menu */}
+        <div className="relative" ref={shareMenuRef}>
+          <button 
+            onClick={() => setShowShareMenu(v => !v)}
+            className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border text-ink-300 border-white/10 bg-white/5 hover:text-white hover:border-white/20">
+            <Share2 size={14} />
+            Share
+          </button>
+          
+          {showShareMenu && (
+            <div className="absolute bottom-full mb-2 right-0 bg-ink-700 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[180px] animate-slide-up">
+              <button
+                onClick={shareToTwitter}
+                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5"
+              >
+                <Twitter size={16} className="text-[#1DA1F2]" />
+                Share to X (Twitter)
+              </button>
+              <button
+                onClick={shareToFacebook}
+                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5"
+              >
+                <Facebook size={16} className="text-[#1877F2]" />
+                Share to Facebook
+              </button>
+              <button
+                onClick={copyToClipboard}
+                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors"
+              >
+                <Share2 size={16} className="text-accent" />
+                Copy Link
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Comments */}
@@ -484,7 +552,6 @@ export default function PostCard({ post, onRefresh }) {
             </div>
           )}
           
-          {/* Add Comment Section with Avatar */}
           <div className="flex gap-2">
             <div className="w-7 h-7 rounded-lg overflow-hidden shrink-0">
               {profile?.avatar_url && profile?.avatar_type !== 'initials' ? (
