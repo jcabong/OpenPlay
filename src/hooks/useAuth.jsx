@@ -4,18 +4,19 @@ import { supabase } from '../lib/supabase'
 const AuthContext = createContext({})
 
 export function AuthProvider({ children }) {
-  const [user, setUser]               = useState(null)
-  const [profile, setProfile]         = useState(null)
-  const [loading, setLoading]         = useState(true)       // auth initialising
-  const [profileLoading, setProfileLoading] = useState(false) // profile fetch in progress
-  const isMountedRef                  = useRef(true)
-  const fetchingRef                   = useRef(false)
+  const [user, setUser]       = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true) // true until BOTH auth + profile are resolved
+  const isMountedRef          = useRef(true)
+  const fetchingRef           = useRef(false)
+  const initializedRef        = useRef(false)  // ensures initAuth only runs once
 
-  // ─── Fetch profile (with double-fetch guard) ──────────────────────────────
+  // ─── Fetch profile ────────────────────────────────────────────────────────
   async function fetchProfile(userId) {
+    // Allow re-fetch if explicitly called (e.g. refreshProfile)
+    // but block duplicate concurrent calls
     if (fetchingRef.current) return
     fetchingRef.current = true
-    setProfileLoading(true)
     try {
       console.log('🟡 Fetching profile for:', userId)
       const { data, error } = await supabase
@@ -29,86 +30,78 @@ export function AuthProvider({ children }) {
       if (error) {
         console.log('🔴 Profile fetch error:', error.message)
         setProfile(null)
-      } else if (!data) {
-        console.log('🟡 Profile not found yet')
-        setProfile(null)
       } else {
-        console.log('🟢 Profile fetched:', data.username || 'no username yet')
-        setProfile(data)
+        console.log('🟢 Profile fetched:', data?.username || 'no username')
+        setProfile(data ?? null)
       }
     } catch (err) {
       console.error('🔴 fetchProfile exception:', err)
       if (isMountedRef.current) setProfile(null)
     } finally {
       fetchingRef.current = false
-      if (isMountedRef.current) {
-        setProfileLoading(false)
-        setLoading(false)
-      }
-    }
-  }
-
-  // ─── Shared session handler ───────────────────────────────────────────────
-  async function handleSession(session) {
-    if (!isMountedRef.current) return
-    setUser(session?.user ?? null)
-    if (session?.user) {
-      await fetchProfile(session.user.id)
-    } else {
-      setProfile(null)
-      setProfileLoading(false)
-      setLoading(false)
+      if (isMountedRef.current) setLoading(false)
     }
   }
 
   useEffect(() => {
     isMountedRef.current = true
 
-    // Safety timeout — never leave user stuck on loading screen
+    // ── Safety timeout ────────────────────────────────────────────────────
     const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && loading) {
         console.warn('⚠️ Safety timeout fired — forcing loading:false')
         setLoading(false)
-        setProfileLoading(false)
       }
-    }, 5000)
+    }, 6000)
 
-    const initAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        console.log('🟢 Session after init:', session?.user?.id ?? 'none')
-        await handleSession(session)
-      } catch (err) {
-        console.error('🔴 Init error:', err)
-        if (isMountedRef.current) {
-          setLoading(false)
-          setProfileLoading(false)
-        }
-      } finally {
-        clearTimeout(safetyTimeout)
-      }
-    }
-
-    initAuth()
-
+    // ── onAuthStateChange is the single source of truth ───────────────────
+    // We do NOT call initAuth separately — instead we let the listener fire
+    // INITIAL_SESSION (which Supabase always emits on mount) to kick everything off.
+    // This eliminates the race between initAuth + the listener both calling fetchProfile.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🟡 Auth state change:', event, session?.user?.id ?? 'none')
-      await handleSession(session)
+
+      if (!isMountedRef.current) return
+
+      const currentUser = session?.user ?? null
+      setUser(currentUser)
+
+      if (currentUser) {
+        // Reset fetch lock so a fresh fetch always runs on auth events
+        fetchingRef.current = false
+        await fetchProfile(currentUser.id)
+      } else {
+        setProfile(null)
+        setLoading(false)
+      }
+
+      // Clear safety timeout once we've had our first auth event
+      if (!initializedRef.current) {
+        initializedRef.current = true
+        clearTimeout(safetyTimeout)
+      }
     })
 
-    // Visibility handler — re-validate session when app returns to foreground
+    // ── Visibility handler ────────────────────────────────────────────────
     const handleVisibility = async () => {
       if (document.visibilityState === 'visible') {
-        console.log('👁 App back to foreground — re-checking session')
+        console.log('👁 App foregrounded — re-checking session')
         try {
           const { data: { session } } = await supabase.auth.getSession()
-          await handleSession(session)
+          const currentUser = session?.user ?? null
+          if (isMountedRef.current) {
+            setUser(currentUser)
+            if (currentUser) {
+              fetchingRef.current = false
+              await fetchProfile(currentUser.id)
+            } else {
+              setProfile(null)
+              setLoading(false)
+            }
+          }
         } catch (err) {
           console.error('🔴 Visibility recheck error:', err)
-          if (isMountedRef.current) {
-            setLoading(false)
-            setProfileLoading(false)
-          }
+          if (isMountedRef.current) setLoading(false)
         }
       }
     }
@@ -126,9 +119,7 @@ export function AuthProvider({ children }) {
   async function signInWithGoogle() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
   }
 
@@ -137,8 +128,13 @@ export function AuthProvider({ children }) {
     window.location.href = '/login'
   }
 
+  // refreshProfile — call this anywhere after updating the users table
+  // e.g. after UsernameSetup saves, or after Edit Profile saves city/region
   const refreshProfile = () => {
-    if (user) fetchProfile(user.id)
+    if (user) {
+      fetchingRef.current = false  // force unlock so re-fetch always runs
+      fetchProfile(user.id)
+    }
   }
 
   return (
@@ -146,7 +142,6 @@ export function AuthProvider({ children }) {
       user,
       profile,
       loading,
-      profileLoading,
       signInWithGoogle,
       signOut,
       refreshProfile,

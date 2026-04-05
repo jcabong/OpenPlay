@@ -15,26 +15,15 @@ import PublicProfilePage from './pages/PublicProfilePage'
 import AdminPage         from './pages/AdminPage'
 
 function ProtectedRoutes() {
-  const { user, profile, loading, profileLoading, refreshProfile } = useAuth()
+  const { user, profile, loading, refreshProfile } = useAuth()
 
-  // Still initialising auth
+  // loading = true until BOTH auth + profile fetch are fully resolved
+  // So by the time loading is false, profile is definitive (not mid-fetch)
   if (loading) return <LoadingScreen />
+  if (!user)   return <Navigate to="/login" replace />
 
-  // Auth done but no user — go to login
-  if (!user) return <Navigate to="/login" replace />
-
-  // User exists but profile fetch is still in progress — wait for it
-  // This prevents UsernameSetup flashing for existing users on page refresh
-  if (profileLoading) return <LoadingScreen />
-
-  // Profile fetch done — username missing or empty means genuinely new user
   if (!profile?.username || profile.username.trim() === '') {
-    return (
-      <UsernameSetup
-        user={user}
-        onComplete={refreshProfile}
-      />
-    )
+    return <UsernameSetup user={user} onComplete={refreshProfile} />
   }
 
   return (
@@ -55,10 +44,8 @@ function ProtectedRoutes() {
 
 function PublicRoutes() {
   const { user, loading } = useAuth()
-
   if (loading) return <LoadingScreen />
   if (user)    return <Navigate to="/" replace />
-
   return <LoginPage />
 }
 
