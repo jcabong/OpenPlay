@@ -29,7 +29,6 @@ export function AuthProvider({ children }) {
       console.error('fetchProfile exception:', err)
       if (isMountedRef.current) setProfile(null)
     } finally {
-      // Always clear loading — this is the critical fix
       if (isMountedRef.current) setLoading(false)
     }
   }
@@ -37,40 +36,47 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     isMountedRef.current = true
 
-    // Safety net — if everything else fails, clear loading after 6s
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.warn('Safety timeout: forcing loading false')
+    // ── Step 1: getSession on mount ────────────────────────────────────────
+    // This is critical for the post-OAuth redirect case.
+    // onAuthStateChange alone can be too slow after exchangeCodeForSession.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMountedRef.current) return
+      if (session?.user) {
+        setUser(session.user)
+        fetchProfile(session.user.id)
+      } else {
         setLoading(false)
       }
-    }, 6000)
+    })
 
+    // ── Step 2: onAuthStateChange for future changes ───────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMountedRef.current) return
+
+      console.log('Auth event:', event)
 
       if (event === 'SIGNED_OUT') {
         setUser(null)
         setProfile(null)
         setLoading(false)
-        clearTimeout(safetyTimeout)
         return
       }
 
+      // TOKEN_REFRESHED, SIGNED_IN, USER_UPDATED etc.
       const currentUser = session?.user ?? null
-      setUser(currentUser)
-
       if (currentUser) {
-        // No fetchingRef dedup — just always fetch. The finally block
-        // guarantees setLoading(false) runs no matter what.
-        await fetchProfile(currentUser.id)
+        setUser(currentUser)
+        // Only re-fetch profile if user changed
+        // (avoids redundant fetch if getSession already handled it)
+        fetchProfile(currentUser.id)
       } else {
+        setUser(null)
         setProfile(null)
         setLoading(false)
       }
-
-      clearTimeout(safetyTimeout)
     })
 
+    // ── Step 3: Visibility handler ─────────────────────────────────────────
     const handleVisibility = async () => {
       if (document.visibilityState !== 'visible') return
       try {
@@ -95,7 +101,6 @@ export function AuthProvider({ children }) {
 
     return () => {
       isMountedRef.current = false
-      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
       document.removeEventListener('visibilitychange', handleVisibility)
     }

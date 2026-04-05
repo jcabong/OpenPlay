@@ -8,18 +8,27 @@ export default function AuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Handle PKCE code exchange (query string)
+        // ── PKCE flow: ?code= in query string ──────────────────────────────
         const params = new URLSearchParams(window.location.search)
         const code = params.get('code')
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code)
-          if (error) throw error
-          navigate('/', { replace: true })
-          return
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) {
+            console.error('exchangeCodeForSession error:', error.message)
+            navigate('/login', { replace: true })
+            return
+          }
+
+          if (data?.session) {
+            // Session is set — onAuthStateChange in useAuth will fire,
+            // fetch the profile, and clear loading. Just navigate.
+            navigate('/', { replace: true })
+            return
+          }
         }
 
-        // Handle implicit flow fallback (hash tokens)
+        // ── Implicit flow fallback: #access_token= in hash ─────────────────
         const hash = window.location.hash
         if (hash) {
           const hashParams = new URLSearchParams(hash.substring(1))
@@ -31,23 +40,28 @@ export default function AuthCallback() {
               access_token: accessToken,
               refresh_token: refreshToken,
             })
-            if (error) throw error
+            if (error) {
+              console.error('setSession error:', error.message)
+              navigate('/login', { replace: true })
+              return
+            }
             navigate('/', { replace: true })
             return
           }
         }
 
-        // No tokens found — onAuthStateChange will handle it
-        // Just wait briefly for Supabase to pick up the session
+        // ── No tokens in URL — check if session already exists ─────────────
+        // This handles the case where Supabase processed the callback itself
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
           navigate('/', { replace: true })
         } else {
+          console.error('No session found after OAuth callback')
           navigate('/login', { replace: true })
         }
 
       } catch (err) {
-        console.error('Auth callback error:', err)
+        console.error('Auth callback exception:', err)
         navigate('/login', { replace: true })
       }
     }
