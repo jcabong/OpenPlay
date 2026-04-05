@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield } from 'lucide-react'
+import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield, ShoppingBag, Users } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useNotifications } from '../hooks/useNotifications'
@@ -7,11 +7,13 @@ import { supabase } from '../lib/supabase'
 import NotificationsPanel from './NotificationsPanel'
 
 const navItems = [
-  { to: '/',        label: 'Feed',      Icon: Home,       end: true },
-  { to: '/log',     label: 'Log Match', Icon: PlusCircle, end: false },
-  { to: '/ranks',   label: 'Ranks',     Icon: Trophy,     end: false },
-  { to: '/events',  label: 'Events',    Icon: Calendar,   end: false },
-  { to: '/profile', label: 'Profile',   Icon: User,       end: false },
+  { to: '/',        label: 'Feed',      Icon: Home,       end: true,  comingSoon: false },
+  { to: '/log',     label: 'Log Match', Icon: PlusCircle, end: false, comingSoon: false },
+  { to: '/ranks',   label: 'Ranks',     Icon: Trophy,     end: false, comingSoon: false },
+  { to: '/events',  label: 'Events',    Icon: Calendar,   end: false, comingSoon: false },
+  { to: '/profile', label: 'Profile',   Icon: User,       end: false, comingSoon: false },
+  { to: '#',        label: 'Locker Room', Icon: ShoppingBag, end: false, comingSoon: true },
+  { to: '#',        label: 'Party UP',  Icon: Users,      end: false, comingSoon: true },
 ]
 
 export default function Layout({ children }) {
@@ -42,8 +44,19 @@ export default function Layout({ children }) {
     navigate('/login')
   }
 
+  const handleComingSoonClick = (label) => {
+    if (label === 'Locker Room') {
+      alert('🚧 Locker Room - Coming Soon! 🚧\n\nBuy & sell sports gear right here.')
+    } else if (label === 'Party UP') {
+      alert('🚧 Party UP - Coming Soon! 🚧\n\nFind your perfect court companion.\nPlay with a Celebrity / Influencer or Pro Player! 🎾🏸')
+    } else {
+      alert(`🚧 ${label} coming soon! 🚧`)
+    }
+  }
+
   const username = profile?.username || user?.email?.split('@')[0] || 'You'
   const initial = username.charAt(0).toUpperCase()
+  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
   const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
   const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
 
@@ -71,28 +84,37 @@ export default function Layout({ children }) {
 
           {/* Nav links */}
           <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navItems.map(({ to, label, Icon, end }) => (
+            {navItems.map(({ to, label, Icon, end, comingSoon }) => (
               <NavLink
-                key={to}
+                key={label}
                 to={to}
                 end={end}
+                onClick={comingSoon ? (e) => { e.preventDefault(); handleComingSoonClick(label); } : undefined}
+                title={comingSoon ? (label === 'Locker Room' ? '🔜 Buy & sell sports gear' : '🔜 Play with celebrities & pros') : label}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-200 group ${
-                    isActive
+                    !comingSoon && isActive
                       ? 'text-black'
                       : 'text-white/50 hover:text-white hover:bg-white/5'
-                  }`
+                  } ${comingSoon ? 'cursor-pointer opacity-70 hover:opacity-100' : ''}`
                 }
-                style={({ isActive }) => isActive
+                style={({ isActive }) => !comingSoon && isActive
                   ? { background: '#c8ff00', boxShadow: '0 0 20px rgba(200,255,0,0.3)' }
                   : {}
                 }
               >
                 {({ isActive }) => (
-                  <>
-                    <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
-                    <span>{label}</span>
-                  </>
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-3">
+                      <Icon size={20} strokeWidth={isActive && !comingSoon ? 2.5 : 1.8} />
+                      <span>{label}</span>
+                    </div>
+                    {comingSoon && (
+                      <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-accent/20 text-accent ml-2">
+                        Soon
+                      </span>
+                    )}
+                  </div>
                 )}
               </NavLink>
             ))}
@@ -149,9 +171,15 @@ export default function Layout({ children }) {
               to="/profile"
               className="flex items-center gap-3 px-4 py-3 rounded-2xl hover:bg-white/5 transition-all"
             >
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
-                style={{ background: avatarBg, color: '#0a0a0f' }}>
-                {initial}
+              <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0">
+                {hasAvatar ? (
+                  <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-black text-sm"
+                    style={{ background: avatarBg, color: '#0a0a0f' }}>
+                    {initial}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white text-sm font-bold truncate">@{username}</p>
@@ -250,8 +278,16 @@ export default function Layout({ children }) {
               {/* User info */}
               <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm"
-                    style={{ background: avatarBg, color: '#0a0a0f' }}>{initial}</div>
+                  <div className="w-10 h-10 rounded-2xl overflow-hidden shrink-0">
+                    {hasAvatar ? (
+                      <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-black text-sm"
+                        style={{ background: avatarBg, color: '#0a0a0f' }}>
+                        {initial}
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <p className="font-black text-white text-sm">@{username}</p>
                     <p className="text-[10px] truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>{user?.email}</p>
@@ -261,28 +297,33 @@ export default function Layout({ children }) {
 
               {/* Nav links */}
               <nav className="flex-1 px-3 py-4 space-y-1">
-                {navItems.map(({ to, label, Icon, end }) => (
+                {navItems.map(({ to, label, Icon, end, comingSoon }) => (
                   <NavLink
-                    key={to}
+                    key={label}
                     to={to}
                     end={end}
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={comingSoon ? (e) => { e.preventDefault(); handleComingSoonClick(label); } : () => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
                       `flex items-center gap-3 px-4 py-3.5 rounded-2xl font-bold text-sm transition-all ${
-                        isActive ? 'text-black' : 'text-white/50'
-                      }`
+                        !comingSoon && isActive ? 'text-black' : 'text-white/50'
+                      } ${comingSoon ? 'opacity-70' : ''}`
                     }
-                    style={({ isActive }) => isActive
+                    style={({ isActive }) => !comingSoon && isActive
                       ? { background: '#c8ff00' }
                       : {}
                     }
                   >
-                    {({ isActive }) => (
-                      <>
-                        <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-3">
+                        <Icon size={20} strokeWidth={isActive && !comingSoon ? 2.5 : 1.8} />
                         {label}
-                      </>
-                    )}
+                      </div>
+                      {comingSoon && (
+                        <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full bg-accent/20 text-accent ml-2">
+                          Soon
+                        </span>
+                      )}
+                    </div>
                   </NavLink>
                 ))}
                 
@@ -330,11 +371,11 @@ export default function Layout({ children }) {
           {children}
         </main>
 
-        {/* Mobile bottom nav */}
+        {/* Mobile bottom nav - filters out coming soon items */}
         <nav className="fixed bottom-0 inset-x-0 z-40 border-t"
           style={{ background: 'rgba(10,10,15,0.97)', backdropFilter: 'blur(20px)', borderColor: 'rgba(255,255,255,0.07)' }}>
           <div className="flex items-center justify-around px-2 pt-2 pb-safe">
-            {navItems.map(({ to, label, Icon, end }) => (
+            {navItems.filter(item => !item.comingSoon).map(({ to, label, Icon, end }) => (
               <NavLink
                 key={to}
                 to={to}
