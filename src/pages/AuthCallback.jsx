@@ -1,3 +1,4 @@
+// src/pages/AuthCallback.jsx
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -8,7 +9,6 @@ export default function AuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // ── PKCE flow: ?code= in query string ──────────────────────────────
         const params = new URLSearchParams(window.location.search)
         const code = params.get('code')
 
@@ -21,14 +21,13 @@ export default function AuthCallback() {
           }
 
           if (data?.session) {
-            // Session is set — onAuthStateChange in useAuth will fire,
-            // fetch the profile, and clear loading. Just navigate.
+            // ✅ Ensure profile exists (fallback if trigger failed)
+            await ensureProfile(data.session.user)
             navigate('/', { replace: true })
             return
           }
         }
 
-        // ── Implicit flow fallback: #access_token= in hash ─────────────────
         const hash = window.location.hash
         if (hash) {
           const hashParams = new URLSearchParams(hash.substring(1))
@@ -36,27 +35,27 @@ export default function AuthCallback() {
           const refreshToken = hashParams.get('refresh_token')
 
           if (accessToken && refreshToken) {
-            const { error } = await supabase.auth.setSession({
+            const { data, error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,
             })
             if (error) {
-              console.error('setSession error:', error.message)
               navigate('/login', { replace: true })
               return
+            }
+            if (data?.session) {
+              await ensureProfile(data.session.user)
             }
             navigate('/', { replace: true })
             return
           }
         }
 
-        // ── No tokens in URL — check if session already exists ─────────────
-        // This handles the case where Supabase processed the callback itself
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
+          await ensureProfile(session.user)
           navigate('/', { replace: true })
         } else {
-          console.error('No session found after OAuth callback')
           navigate('/login', { replace: true })
         }
 
@@ -77,4 +76,27 @@ export default function AuthCallback() {
       </div>
     </div>
   )
+}
+
+// Fallback: create profile if the DB trigger missed it
+async function ensureProfile(user) {
+  if (!user) return
+  const { data } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!data) {
+    const baseUsername = (user.email?.split('@')[0] || 'player')
+      .replace(/[^a-zA-Z0-9_]/g, '')
+    
+    await supabase.from('users').insert({
+      id: user.id,
+      username: baseUsername + '_' + Math.random().toString(36).slice(2, 6),
+      display_name: user.user_metadata?.full_name || baseUsername,
+      avatar_url: user.user_metadata?.avatar_url || null,
+      avatar_type: user.user_metadata?.avatar_url ? 'google' : 'initials',
+    })
+  }
 }
