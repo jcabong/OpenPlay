@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, SPORTS } from '../lib/supabase'
-import { useNavigate, Link } from 'react-router-dom'
-import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare } from 'lucide-react'
 
 const DEFAULT_AVATARS = [
   { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
@@ -16,12 +16,12 @@ const DEFAULT_AVATARS = [
 ]
 
 function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
-  const [selected, setSelected]       = useState(currentUrl || null)
+  const [selected, setSelected]         = useState(currentUrl || null)
   const [selectedType, setSelectedType] = useState(currentType || 'initials')
-  const [uploading, setUploading]     = useState(false)
-  const [saving, setSaving]           = useState(false)
-  const fileRef                       = useRef(null)
-  const { user }                      = useAuth()
+  const [uploading, setUploading]       = useState(false)
+  const [saving, setSaving]             = useState(false)
+  const fileRef                         = useRef(null)
+  const { user }                        = useAuth()
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0]
@@ -55,7 +55,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
           </button>
         </div>
 
-        {/* Current preview */}
         <div className="flex justify-center mb-5">
           {selected && selectedType !== 'initials' ? (
             <img src={selected} alt="avatar" className="w-24 h-24 rounded-[1.5rem] object-cover border-2 border-accent" />
@@ -66,7 +65,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
           )}
         </div>
 
-        {/* Upload custom photo */}
         <button
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
@@ -78,7 +76,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
 
-        {/* Default avatars grid */}
         <p className="text-[9px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
           Default Avatars
         </p>
@@ -103,7 +100,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
           })}
         </div>
 
-        {/* Save button */}
         <button
           onClick={handleSave}
           disabled={saving || !selected}
@@ -120,7 +116,6 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
 function MatchRow({ game }) {
   const sport = SPORTS.find(s => s.id === game.sport)
   const isWin = game.result === 'win'
-  
   return (
     <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
       <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
@@ -129,9 +124,7 @@ function MatchRow({ game }) {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold text-ink-100 truncate">
           {sport?.label}
-          {game.opponent_name && (
-            <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span>
-          )}
+          {game.opponent_name && <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span>}
         </p>
         {game.court_name && (
           <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
@@ -152,52 +145,108 @@ function MatchRow({ game }) {
   )
 }
 
+function PostRow({ post }) {
+  const sport = SPORTS.find(s => s.id === post.sport)
+  const hasMedia = post.media_urls?.length > 0
+  return (
+    <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 bg-white/5">
+        {sport ? sport.emoji : '💬'}
+      </div>
+      <div className="flex-1 min-w-0">
+        {sport && (
+          <span className="text-[9px] font-black uppercase tracking-widest text-accent mb-1 block">
+            {sport.label}
+          </span>
+        )}
+        {post.content && (
+          <p className="text-sm text-ink-200 leading-relaxed line-clamp-2">{post.content}</p>
+        )}
+        {hasMedia && (
+          <p className="text-[9px] text-ink-600 font-bold mt-1">
+            📎 {post.media_urls.length} media attached
+          </p>
+        )}
+        {post.location_name && (
+          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+            <MapPin size={8} />{post.location_name}
+          </p>
+        )}
+      </div>
+      <div className="text-right shrink-0">
+        <div className="flex items-center gap-1 text-ink-600 text-[10px] font-bold justify-end">
+          <MessageSquare size={10} />
+          {post.comments?.length || 0}
+        </div>
+        <p className="text-[9px] text-ink-700 mt-1">
+          {new Date(post.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+const TABS = ['Matches', 'Posts']
+
 export default function ProfilePage() {
-  const { user, profile } = useAuth()
-  const navigate = useNavigate()
-  const [games, setGames] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(false)
-  const [formData, setFormData] = useState({
+  const { user, profile, refreshProfile } = useAuth()
+  const navigate  = useNavigate()
+  const [activeTab, setActiveTab] = useState('Matches')
+  const [games, setGames]         = useState([])
+  const [posts, setPosts]         = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [editing, setEditing]     = useState(false)
+  const [formData, setFormData]   = useState({
     display_name: '',
     bio: '',
     city: '',
     region: '',
   })
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]             = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
-  const [avatarUrl, setAvatarUrl]   = useState(profile?.avatar_url || null)
-  const [avatarType, setAvatarType] = useState(profile?.avatar_type || 'initials')
+  const [avatarUrl, setAvatarUrl]       = useState(profile?.avatar_url || null)
+  const [avatarType, setAvatarType]     = useState(profile?.avatar_type || 'initials')
+  const [saveMsg, setSaveMsg]           = useState('')
 
   useEffect(() => {
-    if (!user) {
-      navigate('/login')
-      return
-    }
-    loadGames()
+    if (!user) { navigate('/login'); return }
+    loadAll()
     if (profile) {
       setFormData({
         display_name: profile.display_name || '',
-        bio: profile.bio || '',
-        city: profile.city || '',
-        region: profile.region || '',
+        bio:          profile.bio          || '',
+        city:         profile.city         || '',
+        region:       profile.region       || '',
       })
-      setAvatarUrl(profile.avatar_url || null)
+      setAvatarUrl(profile.avatar_url   || null)
       setAvatarType(profile.avatar_type || 'initials')
     }
   }, [user, profile])
 
-  async function loadGames() {
+  async function loadAll() {
     setLoading(true)
+    await Promise.all([loadGames(), loadPosts()])
+    setLoading(false)
+  }
+
+  async function loadGames() {
     const { data } = await supabase
       .from('games')
       .select('*')
       .eq('user_id', user.id)
       .eq('is_deleted', false)
       .order('created_at', { ascending: false })
-    
     setGames(data || [])
-    setLoading(false)
+  }
+
+  async function loadPosts() {
+    const { data } = await supabase
+      .from('posts')
+      .select('*, comments(id)')
+      .eq('author_id', user.id)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+    setPosts(data || [])
   }
 
   async function saveAvatar({ url, type }) {
@@ -208,6 +257,7 @@ export default function ProfilePage() {
     if (!error) {
       setAvatarUrl(url)
       setAvatarType(type)
+      refreshProfile()   // ← sync context so Feed/Leaderboard avatars update
     }
   }
 
@@ -217,25 +267,28 @@ export default function ProfilePage() {
       .from('users')
       .update({
         display_name: formData.display_name,
-        bio: formData.bio,
-        city: formData.city,
-        region: formData.region,
+        bio:          formData.bio,
+        city:         formData.city,
+        region:       formData.region,
       })
       .eq('id', user.id)
-    
+
     if (!error) {
       setEditing(false)
-      alert('Profile updated!')
-      window.location.reload()
+      refreshProfile()   // ← sync context — NO reload() needed
+      setSaveMsg('Profile updated!')
+      setTimeout(() => setSaveMsg(''), 3000)
     } else {
-      alert('Error updating profile')
+      setSaveMsg('Error updating profile')
+      setTimeout(() => setSaveMsg(''), 3000)
     }
     setSaving(false)
   }
 
-  const totalWins = games.filter(g => g.result === 'win').length
+  const totalWins    = games.filter(g => g.result === 'win').length
   const totalMatches = games.length
-  const winRate = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
+  const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
+  const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
 
   if (loading) {
     return (
@@ -245,14 +298,13 @@ export default function ProfilePage() {
     )
   }
 
-  const initial = (profile?.username || 'U').charAt(0).toUpperCase()
-
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
       <div className="px-5 pt-14 pb-2">
         <h1 className="text-2xl font-black italic uppercase tracking-tighter">My Profile</h1>
       </div>
 
+      {/* Avatar + identity */}
       <div className="px-5 pb-4">
         <div className="relative w-20 h-20 mb-3">
           {avatarUrl && avatarType !== 'initials' ? (
@@ -269,7 +321,7 @@ export default function ProfilePage() {
             <Camera size={13} className="text-ink-900" />
           </button>
         </div>
-        
+
         {!editing ? (
           <>
             <div className="flex items-center gap-2">
@@ -289,6 +341,11 @@ export default function ProfilePage() {
             )}
             {profile?.bio && (
               <p className="text-ink-300 text-sm mt-3 leading-relaxed max-w-sm">{profile?.bio}</p>
+            )}
+            {saveMsg !== '' && (
+              <p className={`text-xs font-bold mt-2 ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
+                {saveMsg}
+              </p>
             )}
           </>
         ) : (
@@ -321,8 +378,17 @@ export default function ProfilePage() {
               placeholder="Region/Province"
               className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
             />
+            {saveMsg !== '' && (
+              <p className={`text-xs font-bold ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
+                {saveMsg}
+              </p>
+            )}
             <div className="flex gap-2">
-              <button onClick={handleSaveProfile} disabled={saving} className="flex-1 py-2 rounded-xl bg-accent text-ink-900 font-bold text-sm flex items-center justify-center gap-2">
+              <button
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl bg-accent text-ink-900 font-bold text-sm flex items-center justify-center gap-2"
+              >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                 Save
               </button>
@@ -334,6 +400,7 @@ export default function ProfilePage() {
         )}
       </div>
 
+      {/* Stats */}
       <div className="grid grid-cols-3 gap-3 px-4 mb-5">
         <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
           <p className="font-display text-2xl font-bold text-accent italic">{totalWins}</p>
@@ -349,25 +416,56 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Tabs: Matches / Posts */}
+      <div className="px-4 mb-4">
+        <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
+              }`}
+            >
+              {tab === 'Matches' ? <Trophy size={12} /> : <MessageSquare size={12} />}
+              {tab}
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'
+              }`}>
+                {tab === 'Matches' ? totalMatches : posts.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
       <div className="px-4">
-        <h2 className="text-sm font-bold mb-3 flex items-center gap-2">
-          <Calendar size={14} className="text-accent" />
-          Match History
-        </h2>
-        {games.length === 0 ? (
-          <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
-            No matches yet
-          </div>
-        ) : (
-          <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-            {games.map(game => (
-              <MatchRow key={game.id} game={game} />
-            ))}
-          </div>
+        {activeTab === 'Matches' && (
+          games.length === 0 ? (
+            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
+              No matches yet
+            </div>
+          ) : (
+            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+              {games.map(game => <MatchRow key={game.id} game={game} />)}
+            </div>
+          )
+        )}
+
+        {activeTab === 'Posts' && (
+          posts.length === 0 ? (
+            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
+              No posts yet
+            </div>
+          ) : (
+            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+              {posts.map(post => <PostRow key={post.id} post={post} />)}
+            </div>
+          )
         )}
       </div>
 
-      {/* Avatar Picker Modal - MOVED OUTSIDE the main div */}
       {showAvatarPicker && (
         <AvatarPicker
           currentUrl={avatarUrl}
