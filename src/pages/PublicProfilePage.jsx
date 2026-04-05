@@ -33,14 +33,24 @@ export default function PublicProfilePage() {
     setNotFound(false)
     
     try {
-      console.log('🔍 Fetching profile for userId:', userId)
+      console.log('🔍 Fetching profile for param:', userId)
       
-      // Use maybeSingle() to avoid 406 errors
-      const { data: p, error } = await supabase
+      // Check if userId looks like a UUID or a username
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+      
+      let query = supabase
         .from('users')
         .select('id, username, display_name, avatar_url, avatar_type, city, region, bio, created_at')
-        .eq('id', userId)
-        .maybeSingle()
+      
+      if (isUUID) {
+        console.log('🔍 Querying by UUID:', userId)
+        query = query.eq('id', userId)
+      } else {
+        console.log('🔍 Querying by username:', userId)
+        query = query.eq('username', userId)
+      }
+      
+      const { data: p, error } = await query.maybeSingle()
 
       if (error) {
         console.error('❌ Profile fetch error:', error)
@@ -50,7 +60,7 @@ export default function PublicProfilePage() {
       }
 
       if (!p) {
-        console.log('❌ No profile found for userId:', userId)
+        console.log('❌ No profile found for:', userId)
         setNotFound(true)
         setLoading(false)
         return
@@ -59,11 +69,11 @@ export default function PublicProfilePage() {
       console.log('✅ Profile found:', p.username)
       setProfile(p)
 
-      // Fetch user's games
+      // Fetch user's games using the found user's ID
       const { data: g, error: gamesError } = await supabase
         .from('games')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', p.id)
         .eq('is_deleted', false)
         .order('created_at', { ascending: false })
 
@@ -72,11 +82,11 @@ export default function PublicProfilePage() {
       }
       setGames(g || [])
 
-      // Fetch user's posts
+      // Fetch user's posts using the found user's ID
       const { data: po, error: postsError } = await supabase
         .from('posts')
         .select('*, comments(id)')
-        .eq('author_id', userId)
+        .eq('author_id', p.id)
         .eq('is_deleted', false)
         .order('inserted_at', { ascending: false })
         .limit(10)
