@@ -10,7 +10,7 @@ const TIERS = [
   { id: 'global',   label: 'Global',   icon: Globe     },
 ]
 
-function eloTier(elo) {
+function eloTierInfo(elo) {
   if (elo >= 1400) return { label: 'Elite',    color: '#f59e0b' }
   if (elo >= 1200) return { label: 'Advanced', color: '#c8ff00' }
   if (elo >= 1100) return { label: 'Skilled',  color: '#60a5fa' }
@@ -104,6 +104,92 @@ function ScopeSelector({ options, selected, onSelect, emoji }) {
   )
 }
 
+// ── Main ELO board fetch (from player_elo) ───────────────────────────────────
+async function fetchEloBoard({ sport, scope, selectedCourt, selectedCity, selectedProvince }) {
+  if (scope === 'national' || scope === 'global') {
+    // Direct ELO leaderboard — no location filter
+    const { data, error } = await supabase
+      .from('player_elo')
+      .select(`
+        elo_rating, matches_played, wins, losses, sport,
+        user:users!player_elo_user_id_fkey(id, username, display_name, city, province, avatar_url, avatar_type)
+      `)
+      .eq('sport', sport)
+      .gte('matches_played', 1)
+      .order('elo_rating', { ascending: false })
+      .limit(20)
+
+    if (error) { console.error('ELO board error:', error.message); return [] }
+
+    return (data || [])
+      .filter(r => r.user)
+      .map(r => ({
+        id:          r.user.id,
+        username:    r.user.username    || '—',
+        display_name: r.user.display_name,
+        avatar_url:  r.user.avatar_url,
+        avatar_type: r.user.avatar_type,
+        city:        r.user.city        || '—',
+        province:    r.user.province    || '—',
+        elo:         r.elo_rating,
+        wins:        r.wins,
+        losses:      r.losses,
+        total:       r.matches_played,
+        winRate:     r.matches_played > 0 ? Math.round(r.wins / r.matches_played * 100) : 0,
+      }))
+  }
+
+  // Location-scoped: find user IDs from games table, then pull their ELO
+  const scopeField = scope === 'court' ? 'court_name' : scope === 'city' ? 'city' : 'province'
+  const scopeValue = scope === 'court' ? selectedCourt : scope === 'city' ? selectedCity : selectedProvince
+
+  if (!scopeValue) return []
+
+  // Distinct user IDs that played in this location
+  const { data: gamesData, error: gamesError } = await supabase
+    .from('games')
+    .select('user_id')
+    .eq('sport', sport)
+    .eq('is_deleted', false)
+    .not('tagged_opponent_id', 'is', null)  // only ranked matches
+    .eq(scopeField, scopeValue)
+
+  if (gamesError || !gamesData?.length) return []
+
+  const userIds = [...new Set(gamesData.map(g => g.user_id))]
+
+  const { data: eloData, error: eloError } = await supabase
+    .from('player_elo')
+    .select(`
+      elo_rating, matches_played, wins, losses,
+      user:users!player_elo_user_id_fkey(id, username, display_name, city, province, avatar_url, avatar_type)
+    `)
+    .eq('sport', sport)
+    .in('user_id', userIds)
+    .gte('matches_played', 1)
+    .order('elo_rating', { ascending: false })
+    .limit(20)
+
+  if (eloError) { console.error('Scoped ELO error:', eloError.message); return [] }
+
+  return (eloData || [])
+    .filter(r => r.user)
+    .map(r => ({
+      id:          r.user.id,
+      username:    r.user.username    || '—',
+      display_name: r.user.display_name,
+      avatar_url:  r.user.avatar_url,
+      avatar_type: r.user.avatar_type,
+      city:        r.user.city        || '—',
+      province:    r.user.province    || '—',
+      elo:         r.elo_rating,
+      wins:        r.wins,
+      losses:      r.losses,
+      total:       r.matches_played,
+      winRate:     r.matches_played > 0 ? Math.round(r.wins / r.matches_played * 100) : 0,
+    }))
+}
+
 export default function LeaderboardPage() {
   const [sport, setSport]                       = useState('badminton')
   const [tier, setTier]                         = useState('national')
@@ -115,18 +201,21 @@ export default function LeaderboardPage() {
   const [selectedCity, setSelectedCity]         = useState('')
   const [provinceOptions, setProvinceOptions]   = useState([])
   const [selectedProvince, setSelectedProvince] = useState('')
+  const [lastRefresh, setLastRefresh]           = useState(Date.now())
 
-  // Fetch scope options for filters (court/city/province dropdowns)
+  // Fetch location scope options from games
   const fetchOptions = useCallback(async () => {
     const { data } = await supabase
       .from('games')
-      .select('court_name, city, province, user:users!user_id(city)')
+      .select('court_name, city, province')
       .eq('sport', sport)
       .eq('is_deleted', false)
-      .limit(500)
+      .not('tagged_opponent_id', 'is', null)
+      .limit(1000)
+
     if (!data) return
     const courts    = [...new Set(data.map(g => g.court_name).filter(Boolean))].sort()
-    const cities    = [...new Set(data.map(g => g.city || g.user?.city || '').filter(Boolean))].sort()
+    const cities    = [...new Set(data.map(g => g.city).filter(Boolean))].sort()
     const provinces = [...new Set(data.map(g => g.province).filter(Boolean))].sort()
     setCourtOptions(courts)
     setCityOptions(cities)
@@ -136,111 +225,33 @@ export default function LeaderboardPage() {
     setSelectedProvince(prev => provinces.includes(prev) ? prev : (provinces[0] || ''))
   }, [sport])
 
-  // Fetch ELO-based leaderboard
   const fetchBoard = useCallback(async () => {
-    if (tier === 'court'    && !selectedCourt)    { setBoard([]); setLoading(false); return }
-    if (tier === 'city'     && !selectedCity)     { setBoard([]); setLoading(false); return }
-    if (tier === 'province' && !selectedProvince) { setBoard([]); setLoading(false); return }
-
     setLoading(true)
-    try {
-      if (tier === 'national' || tier === 'global') {
-        // ── ELO-based ranking: read directly from player_elo table ──────────
-        const { data, error } = await supabase
-          .from('player_elo')
-          .select(`
-            elo_rating, matches_played, wins, losses,
-            user:users!player_elo_user_id_fkey(id, username, display_name, city, province, avatar_url, avatar_type)
-          `)
-          .eq('sport', sport)
-          .gte('matches_played', 1)        // only show players who have played
-          .order('elo_rating', { ascending: false })
-          .limit(20)
-
-        if (error) { console.error('ELO fetch error:', error.message); setBoard([]); setLoading(false); return }
-
-        const sorted = (data || [])
-          .filter(r => r.user)
-          .map(r => ({
-            id:          r.user.id,
-            username:    r.user.username    || '—',
-            display_name: r.user.display_name,
-            avatar_url:  r.user.avatar_url,
-            avatar_type: r.user.avatar_type,
-            city:        r.user.city        || '—',
-            province:    r.user.province    || '—',
-            elo:         r.elo_rating,
-            wins:        r.wins,
-            losses:      r.losses,
-            total:       r.matches_played,
-            winRate:     r.matches_played > 0 ? Math.round(r.wins / r.matches_played * 100) : 0,
-          }))
-
-        setBoard(sorted)
-
-      } else {
-        // ── Location-scoped: join ELO with games to filter by location ───────
-        const { data: gamesData, error: gamesError } = await supabase
-          .from('games')
-          .select('user_id, city, province, court_name, user:users!user_id(city)')
-          .eq('sport', sport)
-          .eq('is_deleted', false)
-          .not('tagged_opponent_id', 'is', null)
-          .limit(1000)
-
-        if (gamesError) { console.error('Games fetch error:', gamesError.message); setBoard([]); setLoading(false); return }
-
-        // Filter by scope
-        let filteredGames = gamesData || []
-        if (tier === 'court')    filteredGames = filteredGames.filter(g => g.court_name === selectedCourt)
-        if (tier === 'city')     filteredGames = filteredGames.filter(g => (g.city || g.user?.city || '') === selectedCity)
-        if (tier === 'province') filteredGames = filteredGames.filter(g => g.province === selectedProvince)
-
-        if (filteredGames.length === 0) { setBoard([]); setLoading(false); return }
-
-        const userIds = [...new Set(filteredGames.map(g => g.user_id))]
-
-        // Fetch ELO for those users
-        const { data: eloData, error: eloError } = await supabase
-          .from('player_elo')
-          .select(`
-            user_id, elo_rating, matches_played, wins, losses,
-            user:users!player_elo_user_id_fkey(id, username, display_name, city, province, avatar_url, avatar_type)
-          `)
-          .eq('sport', sport)
-          .in('user_id', userIds)
-          .gte('matches_played', 1)
-          .order('elo_rating', { ascending: false })
-          .limit(20)
-
-        if (eloError) { console.error('ELO scoped fetch error:', eloError.message); setBoard([]); setLoading(false); return }
-
-        const sorted = (eloData || [])
-          .filter(r => r.user)
-          .map(r => ({
-            id:          r.user.id,
-            username:    r.user.username    || '—',
-            display_name: r.user.display_name,
-            avatar_url:  r.user.avatar_url,
-            avatar_type: r.user.avatar_type,
-            city:        r.user.city        || '—',
-            province:    r.user.province    || '—',
-            elo:         r.elo_rating,
-            wins:        r.wins,
-            losses:      r.losses,
-            total:       r.matches_played,
-            winRate:     r.matches_played > 0 ? Math.round(r.wins / r.matches_played * 100) : 0,
-          }))
-
-        setBoard(sorted)
-      }
-    } finally {
-      setLoading(false)
-    }
+    const result = await fetchEloBoard({
+      sport,
+      scope:          tier,
+      selectedCourt,
+      selectedCity,
+      selectedProvince,
+    })
+    setBoard(result)
+    setLoading(false)
   }, [sport, tier, selectedCourt, selectedCity, selectedProvince])
 
   useEffect(() => { fetchOptions() }, [fetchOptions])
-  useEffect(() => { fetchBoard()   }, [fetchBoard])
+  useEffect(() => { fetchBoard()   }, [fetchBoard, lastRefresh])
+
+  // Realtime: refresh when player_elo or games change
+  useEffect(() => {
+    const channel = supabase
+      .channel('leaderboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'player_elo' },
+        () => setLastRefresh(Date.now()))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'games' },
+        () => setLastRefresh(Date.now()))
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
 
   const sportEmoji   = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
   const TierIcon     = TIERS.find(t => t.id === tier)?.icon || Trophy
@@ -294,7 +305,7 @@ export default function LeaderboardPage() {
 
       {/* Scope selectors */}
       {tier === 'court' && (courtOptions.length === 0
-        ? <p className="text-ink-600 text-xs font-bold text-center py-2 px-5">No courts yet — log a match at a court first!</p>
+        ? <p className="text-ink-600 text-xs font-bold text-center py-2 px-5">No courts yet — log a ranked match at a court first!</p>
         : <ScopeSelector options={courtOptions} selected={selectedCourt} onSelect={setSelectedCourt} emoji="🏟️" />
       )}
       {tier === 'city' && (cityOptions.length === 0
@@ -306,13 +317,15 @@ export default function LeaderboardPage() {
         : <ScopeSelector options={provinceOptions} selected={selectedProvince} onSelect={setSelectedProvince} emoji="🗺️" />
       )}
 
-      {/* Context label */}
+      {/* Context label + refresh indicator */}
       <div className="px-5 mb-3 flex items-center gap-2">
         <TierIcon size={12} className="text-accent" />
         <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">{contextLabel}</p>
         <div className="ml-auto flex items-center gap-1">
           <TrendingUp size={10} className="text-accent" />
-          <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">ELO · {SPORTS.find(s => s.id === sport)?.label}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-ink-500">
+            Live ELO · {SPORTS.find(s => s.id === sport)?.label}
+          </p>
         </div>
       </div>
 
@@ -323,7 +336,7 @@ export default function LeaderboardPage() {
         <div className="text-center py-16 px-6">
           <p className="text-4xl mb-3">{sportEmoji}</p>
           <p className="text-ink-300 font-black uppercase text-xs tracking-widest">No ranked players yet</p>
-          <p className="text-ink-700 text-xs mt-1">Log a match with a tagged opponent to get your ELO rating</p>
+          <p className="text-ink-700 text-xs mt-1">Log a match with a tagged opponent to earn an ELO rating</p>
         </div>
       ) : (
         <div className="px-4 space-y-2">
@@ -331,9 +344,9 @@ export default function LeaderboardPage() {
           {board.length > 3 && (
             <div className="glass rounded-[1.5rem] border border-white/10 overflow-hidden">
               {board.slice(3).map((player, i) => {
-                const tier_info = eloTier(player.elo)
+                const info = eloTierInfo(player.elo)
                 return (
-                  <div key={player.id + i} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
+                  <div key={player.id} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
                     <div className="w-7 h-7 rounded-lg bg-ink-800 flex items-center justify-center font-bold text-sm text-ink-500 shrink-0">
                       {i + 4}
                     </div>
@@ -350,11 +363,11 @@ export default function LeaderboardPage() {
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="font-display font-bold text-lg italic leading-none" style={{ color: tier_info.color }}>
+                      <p className="font-display font-bold text-lg italic leading-none" style={{ color: info.color }}>
                         {player.elo}
                       </p>
-                      <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: tier_info.color, opacity: 0.7 }}>
-                        {tier_info.label}
+                      <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: info.color, opacity: 0.7 }}>
+                        {info.label}
                       </p>
                       <p className="text-[9px] text-ink-500">{player.wins}W {player.losses}L · {player.winRate}%</p>
                     </div>
