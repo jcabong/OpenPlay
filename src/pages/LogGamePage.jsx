@@ -1,21 +1,36 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { notifyMentions, sendNotification } from '../hooks/useNotifications'
-import { processMatchElo } from '../lib/eloEngine'
-import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation, TrendingUp, TrendingDown } from 'lucide-react'
+import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
+import imageCompression from 'browser-image-compression'
 
-// ── Google Maps ───────────────────────────────────────────────────────────────
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
+// Image compression — same settings as FeedPage
+const compressionOptions = {
+  maxSizeMB:        0.5,
+  maxWidthOrHeight: 1200,
+  useWebWorker:     true,
+  fileType:         'image/jpeg',
+}
+
+async function compressImage(file) {
+  if (file.type.startsWith('video')) return file
+  if (file.size < 500 * 1024)        return file
+  try { return await imageCompression(file, compressionOptions) }
+  catch { return file }
+}
+
+// Google Maps loader
 function useGoogleMaps() {
   const [ready, setReady] = useState(!!window.google?.maps?.places)
   useEffect(() => {
     if (window.google?.maps?.places) { setReady(true); return }
-    const existing = document.getElementById('gmap-script')
-    if (!existing) {
-      const script = document.createElement('script')
+    let script = document.getElementById('gmap-script')
+    if (!script) {
+      script       = document.createElement('script')
       script.id    = 'gmap-script'
       script.src   = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places&loading=async`
       script.async = true
@@ -24,13 +39,13 @@ function useGoogleMaps() {
     }
     const poll = setInterval(() => {
       if (window.google?.maps?.places) { setReady(true); clearInterval(poll) }
-    }, 100)
+    }, 150)
     return () => clearInterval(poll)
   }, [])
   return ready
 }
 
-// ── Location Search ───────────────────────────────────────────────────────────
+// Location search with Google Places + GPS
 function LocationSearch({ courtName, city, province, onCourtChange, onCityChange, onProvinceChange }) {
   const [query, setQuery]             = useState(courtName || '')
   const [suggestions, setSuggestions] = useState([])
@@ -42,16 +57,20 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   const mapsReady                     = useGoogleMaps()
 
   useEffect(() => {
-    if (mapsReady) sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    if (mapsReady && window.google?.maps?.places?.AutocompleteSessionToken) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
   }, [mapsReady])
 
   async function searchPlaces(q) {
-    if (q.length < 2 || !mapsReady) { setSuggestions([]); return }
+    if (!q || q.length < 2 || !mapsReady || !window.google?.maps?.places) {
+      setSuggestions([]); return
+    }
     setSearching(true)
     try {
       const result = await window.google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input: q,
-        sessionToken: sessionTokenRef.current,
+        input:               q,
+        sessionToken:        sessionTokenRef.current,
         includedRegionCodes: ['ph'],
       })
       setSuggestions((result.suggestions || []).map(s => {
@@ -59,7 +78,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
         return { placeId: p.placeId, name: p.mainText?.text || p.text?.text || '', secondary: p.secondaryText?.text || '' }
       }))
     } catch (e) {
-      console.error('Places error', e)
+      console.error('Places error:', e)
       setSuggestions([])
     } finally {
       setSearching(false)
@@ -83,14 +102,14 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     try {
       const place = new window.google.maps.places.Place({ id: s.placeId, requestedLanguage: 'en' })
       await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
-      const comps = place.addressComponents || []
-      const locality  = comps.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3') || c.types.includes('sublocality_level_1') || c.types.includes('sublocality'))
-      const provComp  = comps.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
-      let cityVal     = locality?.longText || locality?.long_name || ''
-      let provinceVal = provComp?.longText || provComp?.long_name || ''
+      const comps       = place.addressComponents || []
+      const locality    = comps.find(c => c.types.includes('locality') || c.types.includes('administrative_area_level_3') || c.types.includes('sublocality_level_1') || c.types.includes('sublocality'))
+      const provinceComp = comps.find(c => c.types.includes('administrative_area_level_2') || c.types.includes('administrative_area_level_1'))
+      let cityVal     = locality?.longText     || locality?.long_name     || ''
+      let provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
       if (!cityVal && s.secondary) {
         const parts = s.secondary.split(',').map(p => p.trim())
-        cityVal = parts[0] || ''
+        cityVal     = parts[0] || ''
         provinceVal = parts[1] || provinceVal
       }
       onCityChange(cityVal)
@@ -100,7 +119,9 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       onCityChange(parts[0] || '')
       onProvinceChange(parts[1] || '')
     }
-    if (window.google?.maps?.places) sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    if (window.google?.maps?.places?.AutocompleteSessionToken) {
+      sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
+    }
   }
 
   function clearLocation() {
@@ -108,38 +129,40 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   }
 
   async function detectGPS() {
-    if (!navigator.geolocation) return alert('Geolocation not supported')
+    if (!navigator.geolocation) return alert('Geolocation not supported on this device')
     setGpsLoading(true)
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         try {
           const res  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`)
           const data = await res.json()
-          if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
+          if (!data.results?.length) { alert('Could not determine location'); setGpsLoading(false); return }
           let name = '', cityVal = '', provinceVal = ''
           for (const result of data.results) {
-            const c        = result.address_components
-            const premise  = c.find(x => x.types.includes('premise'))
-            const estab    = c.find(x => x.types.includes('establishment'))
-            const poi      = c.find(x => x.types.includes('point_of_interest'))
-            const route    = c.find(x => x.types.includes('route'))
-            const locality = c.find(x => x.types.includes('locality'))
-            const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
-            if (!name)       name       = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
-            if (!cityVal)    cityVal    = locality?.long_name || ''
-            if (!provinceVal) provinceVal = province?.long_name || ''
+            const c          = result.address_components
+            const premise    = c.find(x => x.types.includes('premise'))
+            const estab      = c.find(x => x.types.includes('establishment'))
+            const poi        = c.find(x => x.types.includes('point_of_interest'))
+            const route      = c.find(x => x.types.includes('route'))
+            const locality   = c.find(x => x.types.includes('locality') || x.types.includes('administrative_area_level_3'))
+            const provinceCo = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
+            if (!name)        name        = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
+            if (!cityVal)     cityVal     = locality?.long_name   || ''
+            if (!provinceVal) provinceVal = provinceCo?.long_name || ''
             if (name && cityVal) break
           }
           if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
           setQuery(name); onCourtChange(name); onCityChange(cityVal); onProvinceChange(provinceVal)
-        } catch { alert('Could not get location') }
-        finally { setGpsLoading(false) }
+        } catch (err) {
+          console.error('GPS geocode error:', err)
+          alert('Could not get location. Try searching manually.')
+        } finally { setGpsLoading(false) }
       },
       (err) => {
         setGpsLoading(false)
-        if (err.code === 1) alert('Location access denied.')
-        else if (err.code === 2) alert('Location unavailable.')
-        else alert('Location request timed out.')
+        if (err.code === 1)      alert('Location access denied. Please enable location in your browser settings.')
+        else if (err.code === 2) alert('Location unavailable. Try again.')
+        else                     alert('Location request timed out. Try again.')
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
@@ -156,16 +179,19 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           value={query}
           onChange={handleInput}
           onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 200)}
+          onBlur={() => setTimeout(() => setFocused(false), 250)}
           autoComplete="off"
         />
         {searching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
         {query && !searching && (
-          <button type="button" onClick={clearLocation} className="shrink-0 text-white/30 hover:text-white/60"><X size={14} /></button>
+          <button type="button" onClick={clearLocation} className="shrink-0" style={{ color: 'rgba(255,255,255,0.3)' }}>
+            <X size={14} />
+          </button>
         )}
         <button type="button" onClick={detectGPS} disabled={gpsLoading}
           className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
-          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
+          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
+          title="Detect my location">
           {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
         </button>
       </div>
@@ -177,7 +203,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
               className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors">
               <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
               <div>
-                <p className="text-xs font-bold text-white leading-tight">{s.name}</p>
+                <p className="text-xs font-bold leading-tight" style={{ color: '#ffffff' }}>{s.name}</p>
                 <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.secondary}</p>
               </div>
             </button>
@@ -201,99 +227,47 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   )
 }
 
-// ── ELO Result Toast ──────────────────────────────────────────────────────────
-function EloToast({ rating }) {
-  if (!rating) return null
-  const isGain    = rating.delta >= 0
-  const tierColor = {
-    Diamond: '#60a5fa', Platinum: '#c084fc', Gold: '#facc15',
-    Silver: '#94a3b8', Bronze: '#f59e0b',
-  }[rating.skillTier] || '#c8ff00'
-
-  return (
-    <div className="mt-4 p-4 rounded-2xl border flex items-center gap-3"
-      style={{ background: isGain ? 'rgba(200,255,0,0.06)' : 'rgba(255,77,77,0.06)', borderColor: isGain ? 'rgba(200,255,0,0.2)' : 'rgba(255,77,77,0.2)' }}>
-      {isGain ? <TrendingUp size={16} style={{ color: '#c8ff00' }} /> : <TrendingDown size={16} style={{ color: '#ff4d4d' }} />}
-      <div className="flex-1">
-        <p className="text-xs font-black text-white">
-          Rating: {rating.eloBefore} → <span style={{ color: isGain ? '#c8ff00' : '#ff4d4d' }}>{rating.eloAfter}</span>
-          <span className="ml-2 text-[10px]" style={{ color: isGain ? '#c8ff00' : '#ff4d4d' }}>
-            ({isGain ? '+' : ''}{rating.delta})
-          </span>
-        </p>
-        <p className="text-[10px] font-bold mt-0.5" style={{ color: tierColor }}>
-          {rating.skillTier} Tier
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// Main page
 export default function LogGamePage() {
   const { user, profile } = useAuth()
   const navigate          = useNavigate()
-  const [loading, setLoading]               = useState(false)
-  const [mediaFiles, setMediaFiles]         = useState([])
-  const [mediaPreviews, setMediaPreviews]   = useState([])
-  const [eloResult, setEloResult]           = useState(null)   // shown after submit
-  const fileInputRef = useRef(null)
+  const [loading, setLoading]             = useState(false)
+  const [mediaFiles, setMediaFiles]       = useState([])
+  const [mediaPreviews, setMediaPreviews] = useState([])
+  const fileInputRef                      = useRef(null)
 
   const [formData, setFormData] = useState({
-    sport:      'badminton',
-    court_name: '',
-    city:       '',
-    province:   '',
-    result:     'win',
-    score:      '',
-    intensity:  'Med',
-    content:    '',
+    sport: 'badminton', court_name: '', city: '', province: '',
+    result: 'win', score: '', intensity: 'Med', content: '',
   })
 
-  // ── Opponent search — FIXED: uses 'users' table, correct columns ──────────
   const [searchQuery, setSearchQuery]     = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [taggedUser, setTaggedUser]       = useState(null)
   const [isSearching, setIsSearching]     = useState(false)
-  const searchDebounceRef                 = useRef(null)
 
-  const searchOpponents = useCallback(async (query) => {
-    if (!query || query.length < 2) { setSearchResults([]); return }
+  async function searchOpponents(query) {
+    if (!query || query.length < 2) return
     setIsSearching(true)
-    try {
-      // ✅ FIXED: 'users' table (not 'profiles'), correct column names
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, username, display_name, city, avatar_url, avatar_type, elo_rating, skill_tier')
-        .ilike('username', `%${query}%`)
-        .neq('id', user.id)
-        .limit(6)
-
-      if (error) {
-        console.error('Opponent search error:', error.message)
-        setSearchResults([])
-      } else {
-        setSearchResults(data || [])
-      }
-    } catch (err) {
-      console.error('Opponent search exception:', err)
-      setSearchResults([])
-    } finally {
-      setIsSearching(false)
-    }
-  }, [user?.id])
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username, display_name, city, province')
+      .ilike('username', `%${query}%`)
+      .neq('id', user.id)
+      .limit(6)
+    if (error) console.error('Opponent search error:', error)
+    else       setSearchResults(data || [])
+    setIsSearching(false)
+  }
 
   useEffect(() => {
-    clearTimeout(searchDebounceRef.current)
-    if (taggedUser || !searchQuery || searchQuery.length < 2) {
-      setSearchResults([])
-      return
-    }
-    searchDebounceRef.current = setTimeout(() => searchOpponents(searchQuery), 300)
-    return () => clearTimeout(searchDebounceRef.current)
-  }, [searchQuery, taggedUser, searchOpponents])
+    const timer = setTimeout(() => {
+      if (searchQuery.length >= 2 && !taggedUser) searchOpponents(searchQuery)
+      else if (searchQuery.length === 0)          setSearchResults([])
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery, taggedUser])
 
-  // ── Media handlers ────────────────────────────────────────────────────────
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
     setMediaFiles(prev => [...prev, ...files].slice(0, 6))
@@ -304,189 +278,137 @@ export default function LogGamePage() {
   }
 
   function removeMedia(index) {
-    setMediaFiles(prev => prev.filter((_, i) => i !== index))
+    setMediaFiles(prev    => prev.filter((_, i) => i !== index))
     setMediaPreviews(prev => prev.filter((_, i) => i !== index))
   }
 
+  // Upload with compression
   async function uploadMedia() {
     const urls = [], types = []
     for (const file of mediaFiles) {
-      const ext  = file.name.split('.').pop()
+      const fileToUpload = await compressImage(file)           // ← compression added
+      const ext  = fileToUpload.type.startsWith('video') ? file.name.split('.').pop() : 'jpg'
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { error } = await supabase.storage.from('openplay-media').upload(path, file)
+      const { error } = await supabase.storage.from('openplay-media').upload(path, fileToUpload)
       if (!error) {
         const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
         urls.push(publicUrl)
-        types.push(file.type.startsWith('video') ? 'video' : 'image')
+        types.push(fileToUpload.type.startsWith('video') ? 'video' : 'image')
       }
     }
     return { urls, types }
   }
 
-  // ── Submit ────────────────────────────────────────────────────────────────
   async function handleSubmit(e) {
     e.preventDefault()
     if (loading || !user) return
 
     if (formData.result === 'win' && !taggedUser) {
-      alert('⚠️ To record a WIN on the leaderboard, you must tag your opponent.')
+      alert('⚠️ To record a WIN, you must tag your opponent. This keeps the rankings fair.')
       return
     }
 
     setLoading(true)
-    setEloResult(null)
-
     try {
-      const { urls: media_urls, types: media_types } = mediaFiles.length
-        ? await uploadMedia()
-        : { urls: [], types: [] }
+      const { urls: media_urls, types: media_types } = mediaFiles.length ? await uploadMedia() : { urls: [], types: [] }
+      const now = new Date().toISOString()
 
-      // ── 1. Insert your game ───────────────────────────────────────────────
+      // 1. Your game
       const { data: game, error: gameError } = await supabase
         .from('games')
         .insert([{
-          user_id:            user.id,
-          sport:              formData.sport,
-          court_name:         formData.court_name,
-          city:               formData.city,
-          province:           formData.province,
-          result:             formData.result,
-          score:              formData.score,
-          intensity:          formData.intensity,
-          // ✅ FIXED: use username, fall back to raw search text
-          opponent_name:      taggedUser ? taggedUser.username : searchQuery.trim(),
-          tagged_opponent_id: taggedUser?.id || null,
-          created_at:         new Date().toISOString(),
+          user_id: user.id, sport: formData.sport, court_name: formData.court_name,
+          city: formData.city, province: formData.province, result: formData.result,
+          score: formData.score, intensity: formData.intensity,
+          opponent_name: taggedUser ? taggedUser.username : searchQuery,
+          tagged_opponent_id: taggedUser?.id || null, created_at: now,
         }])
-        .select()
-        .single()
+        .select().single()
 
       if (gameError) throw gameError
 
-      // ── 2. Mirror loss on opponent (only for wins with a tagged player) ───
+      // 2. Opponent's loss (syncs leaderboard + their profile)
       let opponentGame = null
       if (taggedUser && formData.result === 'win') {
         const { data: oppData, error: opponentError } = await supabase
           .from('games')
           .insert([{
-            user_id:            taggedUser.id,
-            sport:              formData.sport,
-            court_name:         formData.court_name,
-            city:               formData.city,
-            province:           formData.province,
-            result:             'loss',
-            score:              formData.score,
-            intensity:          formData.intensity,
-            opponent_name:      profile?.username || 'opponent',
-            tagged_opponent_id: user.id,
-            created_at:         new Date().toISOString(),
+            user_id: taggedUser.id, sport: formData.sport, court_name: formData.court_name,
+            city: formData.city, province: formData.province, result: 'loss',
+            score: formData.score, intensity: formData.intensity,
+            opponent_name: profile?.username || 'opponent',
+            tagged_opponent_id: user.id, created_at: now,
           }])
           .select()
-
         if (opponentError) {
-          console.error('Opponent sync failed:', opponentError.message)
+          console.error('Opponent sync failed:', opponentError)
+          alert('⚠️ Match saved but opponent stats failed to sync.')
         } else {
           opponentGame = oppData?.[0]
         }
       }
 
-      // ── 3. ELO update (runs alongside wins/winrate — non-blocking) ────────
-      let myEloRating = null
-      if (taggedUser) {
-        try {
-          const elo = await processMatchElo({
-            matchId:     game.id,
-            sport:       formData.sport,
-            players: [
-              { userId: user.id,       teamId: 'A' },
-              { userId: taggedUser.id, teamId: 'B' },
-            ],
-            winningTeam: formData.result === 'win' ? 'A' : 'B',
-          })
-          if (elo.success) {
-            myEloRating = elo.updatedRatings.find(r => r.userId === user.id) || null
-          } else {
-            console.warn('ELO update non-critical failure:', elo.error)
-          }
-        } catch (eloErr) {
-          // ELO failure must never block match recording
-          console.error('ELO exception (non-critical):', eloErr)
-        }
-      }
-
-      // ── 4. Create feed post ───────────────────────────────────────────────
-      const sport     = SPORTS.find(s => s.id === formData.sport)
-      const opponent  = taggedUser ? `@${taggedUser.username}` : searchQuery.trim() || 'Open Play'
-      const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
+      // 3. Feed post
+      const sport        = SPORTS.find(s => s.id === formData.sport)
+      const opponentLabel = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
+      const autoContent  = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponentLabel}`
 
       const { data: newPost, error: postError } = await supabase
         .from('posts')
         .insert([{
-          author_id:     user.id,
-          user_id:       user.id,
-          content:       formData.content || autoContent,
-          sport:         formData.sport,
-          location_name: formData.court_name,
-          city:          formData.city,
-          province:      formData.province,
-          media_urls,
-          media_types,
-          game_id:       game.id,
-          inserted_at:   new Date().toISOString(),
+          author_id: user.id, user_id: user.id,
+          content: formData.content || autoContent, sport: formData.sport,
+          location_name: formData.court_name, city: formData.city, province: formData.province,
+          media_urls, media_types, game_id: game.id, inserted_at: now, created_at: now,
         }])
-        .select()
-        .single()
+        .select().single()
 
-      if (postError) console.warn('Feed post failed (non-critical):', postError.message)
+      if (postError) console.warn('Feed post failed:', postError.message)
 
-      // ── 5. Notifications ──────────────────────────────────────────────────
+      // 4. Notifications
       const myUsername = profile?.username || 'user'
       if (taggedUser && formData.result === 'win') {
         await sendNotification({
-          userId: taggedUser.id,
-          type:   'tagged_match',
-          title:  `@${myUsername} recorded a match against you`,
-          body:   `${sport?.emoji} ${sport?.label} · A LOSS has been recorded. Score: ${formData.score || '—'}`,
-          data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
+          userId: taggedUser.id, type: 'tagged_match',
+          title: `@${myUsername} recorded a match against you`,
+          body:  `${sport?.emoji} ${sport?.label} · A LOSS has been recorded on your profile. Score: ${formData.score || '—'}`,
+          data:  { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
         }).catch(err => console.error('Notification error:', err))
       }
-      if (formData.content.includes('@') && newPost) {
+      if (formData.content?.includes('@') && newPost) {
         await notifyMentions({
-          text:     formData.content.trim(),
+          text: formData.content.trim(),
           fromUser: { id: user.id, username: myUsername },
-          postId:   newPost.id,
-        }).catch(err => console.error('Mention notification error:', err))
+          postId: newPost.id,
+        }).catch(err => console.error('Mention error:', err))
       }
 
-      // ── 6. Show result ────────────────────────────────────────────────────
-      setEloResult(myEloRating)
-
-      // Brief delay so the ELO toast is visible before navigating
-      setTimeout(() => navigate('/'), myEloRating ? 2200 : 800)
+      alert(`✅ Match recorded!\n\n${opponentGame ? 'Opponent stats synced ✅' : taggedUser && formData.result === 'win' ? '⚠️ Opponent stats failed to sync' : ''}`)
+      navigate('/')
 
     } catch (err) {
       console.error('Submit error:', err)
       alert('Error saving match: ' + err.message)
+    } finally {
       setLoading(false)
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen pb-32" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
+
+      {/* Header */}
       <div className="px-5 pt-12 pb-6">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-1.5 h-8 rounded-full" style={{ background: '#c8ff00' }} />
-          <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">Record Match</h1>
+          <h1 className="text-3xl font-black italic uppercase tracking-tighter" style={{ color: '#ffffff' }}>Record Match</h1>
         </div>
-        <p className="text-xs font-bold uppercase tracking-widest ml-4" style={{ color: '#c8ff00', opacity: 0.7 }}>
-          Sync your performance
-        </p>
+        <p className="text-xs font-bold uppercase tracking-widest ml-4" style={{ color: '#c8ff00', opacity: 0.7 }}>Sync your performance</p>
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 space-y-5">
 
-        {/* Sport selector */}
+        {/* Sport */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {SPORTS.map(s => (
             <button key={s.id} type="button" onClick={() => setFormData({ ...formData, sport: s.id })}
@@ -506,132 +428,57 @@ export default function LogGamePage() {
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
           </div>
           <LocationSearch
-            courtName={formData.court_name}
-            city={formData.city}
-            province={formData.province}
-            onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
-            onCityChange={v  => setFormData(f => ({ ...f, city: v }))}
+            courtName={formData.court_name} city={formData.city} province={formData.province}
+            onCourtChange={v   => setFormData(f => ({ ...f, court_name: v }))}
+            onCityChange={v    => setFormData(f => ({ ...f, city: v }))}
             onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
           />
         </div>
 
-        {/* Match Details */}
+        {/* Match details */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
           </div>
 
-          {/* ── Opponent search ── */}
+          {/* Opponent */}
           <div className="relative">
             <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
               <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
               <input
                 className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
                 style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
-                placeholder="Tag opponent by username…"
+                placeholder="Tag opponent (username)"
                 value={taggedUser ? `@${taggedUser.username}` : searchQuery}
-                onChange={e => {
-                  if (taggedUser) {
-                    setTaggedUser(null)
-                    setSearchQuery('')
-                    setSearchResults([])
-                  } else {
-                    setSearchQuery(e.target.value)
-                  }
-                }}
+                onChange={e => { setTaggedUser(null); setSearchQuery(e.target.value); setSearchResults([]) }}
               />
               {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
               {taggedUser && (
                 <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]) }}
-                  className="shrink-0 text-red-400 hover:text-red-300">
+                  style={{ color: '#ff4d4d' }}>
                   <X size={15} />
                 </button>
               )}
             </div>
 
-            {/* Tagged player preview */}
-            {taggedUser && (
-              <div className="mx-3 my-2 px-3 py-2.5 rounded-xl flex items-center gap-3"
-                style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.2)' }}>
-                <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0">
-                  {taggedUser.avatar_url && taggedUser.avatar_type !== 'initials' ? (
-                    <img src={taggedUser.avatar_url} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs font-black"
-                      style={{ background: 'rgba(200,255,0,0.2)', color: '#c8ff00' }}>
-                      {taggedUser.username.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-black text-white truncate">
-                    {taggedUser.display_name || taggedUser.username}
-                    {taggedUser.display_name && (
-                      <span className="ml-1.5 font-normal" style={{ color: 'rgba(200,255,0,0.6)' }}>@{taggedUser.username}</span>
-                    )}
-                  </p>
-                  {taggedUser.city && (
-                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>📍 {taggedUser.city}</p>
-                  )}
-                </div>
-                {/* Show opponent's ELO if available */}
-                {taggedUser.elo_rating && (
-                  <span className="text-[9px] font-black px-2 py-1 rounded-lg shrink-0"
-                    style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
-                    {taggedUser.elo_rating} ELO
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Search results dropdown */}
             {searchResults.length > 0 && !taggedUser && (
-              <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10"
-                style={{ background: '#1a1a2e' }}>
+              <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
                 {searchResults.map(u => (
                   <button key={u.id} type="button"
-                    onMouseDown={e => {
-                      e.preventDefault()
-                      setTaggedUser(u)
-                      setSearchQuery('')
-                      setSearchResults([])
-                    }}
-                    className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-none hover:bg-white/8 transition-colors">
-                    <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0">
-                      {u.avatar_url && u.avatar_type !== 'initials' ? (
-                        <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs font-black"
-                          style={{ background: 'rgba(200,255,0,0.15)', color: '#c8ff00' }}>
-                          {u.username.charAt(0).toUpperCase()}
-                        </div>
+                    onMouseDown={e => { e.preventDefault(); setTaggedUser(u); setSearchQuery(''); setSearchResults([]) }}
+                    className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none hover:bg-white/10 transition-colors">
+                    <div>
+                      <span className="font-bold" style={{ color: '#ffffff' }}>@{u.username}</span>
+                      {u.display_name && (
+                        <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>{u.display_name}</span>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      {/* ✅ FIXED: display_name shown properly */}
-                      <p className="text-sm font-bold text-white truncate">
-                        {u.display_name || u.username}
-                      </p>
-                      <p className="text-xs" style={{ color: 'rgba(200,255,0,0.7)' }}>@{u.username}</p>
-                      {u.city && <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>📍 {u.city}</p>}
-                    </div>
-                    {/* Show ELO in search results so you know who you're up against */}
-                    {u.elo_rating && (
-                      <div className="text-right shrink-0">
-                        <p className="text-[10px] font-black" style={{ color: '#c8ff00' }}>{u.elo_rating}</p>
-                        <p className="text-[9px]" style={{ color: 'rgba(255,255,255,0.3)' }}>{u.skill_tier || 'Bronze'}</p>
-                      </div>
+                    {(u.city || u.province) && (
+                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>📍 {u.city || u.province}</span>
                     )}
                   </button>
                 ))}
               </div>
-            )}
-
-            {/* No results hint */}
-            {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && !taggedUser && (
-              <p className="px-4 py-2 text-[10px] font-bold" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                No players found for "{searchQuery}"
-              </p>
             )}
           </div>
 
@@ -652,7 +499,7 @@ export default function LogGamePage() {
             <textarea
               className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
               style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Add a caption (optional)..."
+              placeholder="Add a caption (optional)…"
               rows={3}
               value={formData.content}
               onChange={e => setFormData({ ...formData, content: e.target.value })}
@@ -660,7 +507,7 @@ export default function LogGamePage() {
           </div>
         </div>
 
-        {/* Win / Loss */}
+        {/* Result */}
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
           <div className="grid grid-cols-2 gap-3">
@@ -682,7 +529,7 @@ export default function LogGamePage() {
               style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
               <span className="text-sm">⚠️</span>
               <p className="text-[10px] font-bold" style={{ color: 'rgba(200,255,0,0.8)' }}>
-                Wins need a tagged opponent to count in rankings + affect ELO
+                Wins require a tagged opponent to count in rankings
               </p>
             </div>
           )}
@@ -696,18 +543,14 @@ export default function LogGamePage() {
           </div>
           <div className="flex gap-2">
             {[
-              { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)',  borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
-              { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',   borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
-              { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',   borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
+              { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
+              { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
+              { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
             ].map(({ lvl, active, dot }) => (
               <button key={lvl} type="button" onClick={() => setFormData({ ...formData, intensity: lvl })}
                 className="flex-1 py-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-1.5"
-                style={formData.intensity === lvl
-                  ? active
-                  : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }
-                }>
-                <span className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
+                style={formData.intensity === lvl ? active : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
                 {lvl}
               </button>
             ))}
@@ -721,13 +564,10 @@ export default function LogGamePage() {
             <div className="grid grid-cols-3 gap-2 mb-3">
               {mediaPreviews.map((m, i) => (
                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.4)' }}>
-                  {m.type === 'video'
-                    ? <video src={m.url} className="w-full h-full object-cover" />
-                    : <img src={m.url} alt="" className="w-full h-full object-cover" />
-                  }
+                  {m.type === 'video' ? <video src={m.url} className="w-full h-full object-cover" /> : <img src={m.url} alt="" className="w-full h-full object-cover" />}
                   <button type="button" onClick={() => removeMedia(i)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white"
-                    style={{ background: 'rgba(0,0,0,0.7)' }}>
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0,0,0,0.7)', color: '#ffffff' }}>
                     <X size={10} />
                   </button>
                 </div>
@@ -742,17 +582,10 @@ export default function LogGamePage() {
           <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
         </div>
 
-        {/* ELO result toast (shown after successful submit while navigating away) */}
-        {eloResult && <EloToast rating={eloResult} />}
-
         {/* Submit */}
         <button type="submit" disabled={loading}
           className="w-full font-black py-6 rounded-[2.5rem] uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.97] disabled:opacity-50"
-          style={{
-            background: loading ? 'rgba(200,255,0,0.5)' : '#c8ff00',
-            color: '#0a0a0f',
-            boxShadow: '0 0 30px rgba(200,255,0,0.35)',
-          }}>
+          style={{ background: loading ? 'rgba(200,255,0,0.5)' : '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 30px rgba(200,255,0,0.35)' }}>
           {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={22} /> Sync Game</>}
         </button>
       </form>

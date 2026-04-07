@@ -6,7 +6,7 @@ import { Loader2, RefreshCw, Image, Send, X, Hash, MapPin, Navigation } from 'lu
 import imageCompression from 'browser-image-compression'
 import PostCard from '../components/PostCard'
 
-const ALL_SPORTS    = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
+const ALL_SPORTS     = [{ id: 'all', label: 'All', emoji: '🌐' }, ...SPORTS]
 const POSTS_PER_PAGE = 10
 
 const compressionOptions = {
@@ -19,14 +19,32 @@ const compressionOptions = {
 async function compressImage(file) {
   if (file.type.startsWith('video')) return file
   if (file.size < 500 * 1024)        return file
-  try {
-    return await imageCompression(file, compressionOptions)
-  } catch {
-    return file
-  }
+  try { return await imageCompression(file, compressionOptions) }
+  catch { return file }
 }
 
-// ── Mention-aware textarea ────────────────────────────────────────────────────
+// Fetch a single post by id — used for smart realtime updates
+async function fetchSinglePost(postId) {
+  const { data } = await supabase
+    .from('posts')
+    .select(`
+      *,
+      author:users!posts_author_id_fkey (id, username, display_name, avatar_url, avatar_type),
+      likes (user_id),
+      comments (
+        *,
+        users(id, username, display_name, avatar_url, avatar_type),
+        comment_likes(user_id),
+        comment_replies(*, users(id, username, display_name, avatar_url, avatar_type))
+      )
+    `)
+    .eq('id', postId)
+    .eq('is_deleted', false)
+    .single()
+  return data
+}
+
+// Mention-aware textarea
 function MentionTextarea({ value, onChange, placeholder }) {
   const [results, setResults]   = useState([])
   const [showDrop, setShowDrop] = useState(false)
@@ -41,10 +59,7 @@ function MentionTextarea({ value, onChange, placeholder }) {
     const match = val.slice(0, pos).match(/@(\w*)$/)
     if (match && match[1].length >= 1) {
       const { data } = await supabase
-        .from('users')
-        .select('id, username')
-        .ilike('username', `${match[1]}%`)
-        .limit(5)
+        .from('users').select('id, username').ilike('username', `${match[1]}%`).limit(5)
       setResults(data || [])
       setShowDrop(true)
     } else {
@@ -65,11 +80,8 @@ function MentionTextarea({ value, onChange, placeholder }) {
   return (
     <div className="relative">
       <textarea
-        ref={ref}
-        value={value}
-        onChange={handleChange}
+        ref={ref} value={value} onChange={handleChange} autoFocus
         onKeyDown={e => { if (e.key === 'Escape') setShowDrop(false) }}
-        autoFocus
         className="w-full bg-transparent border-none focus:outline-none focus:ring-0 resize-none text-sm leading-relaxed"
         style={{ color: '#ffffff', caretColor: '#c8ff00', minHeight: '80px' }}
         placeholder={placeholder}
@@ -77,12 +89,8 @@ function MentionTextarea({ value, onChange, placeholder }) {
       {showDrop && results.length > 0 && (
         <div className="absolute top-full mt-1 left-0 w-full bg-ink-700 border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50">
           {results.map(u => (
-            <button
-              key={u.id}
-              type="button"
-              onMouseDown={() => pickUser(u.username)}
-              className="w-full text-left px-4 py-2.5 text-xs font-bold text-accent hover:bg-white/5 border-b border-white/5 last:border-none"
-            >
+            <button key={u.id} type="button" onMouseDown={() => pickUser(u.username)}
+              className="w-full text-left px-4 py-2.5 text-xs font-bold text-accent hover:bg-white/5 border-b border-white/5 last:border-none">
               @{u.username}
             </button>
           ))}
@@ -101,10 +109,8 @@ export default function FeedPage() {
   const [hasMore, setHasMore]         = useState(true)
   const [sport, setSport]             = useState('all')
   const [refreshing, setRefreshing]   = useState(false)
-
-  // ── Use a ref for page so fetchFeed doesn't need it in deps ──────────────
-  const pageRef     = useRef(0)
-  const lastPostRef = useRef(null)
+  const pageRef                       = useRef(0)
+  const lastPostRef                   = useRef(null)
 
   // Composer
   const [content, setContent]                     = useState('')
@@ -117,14 +123,11 @@ export default function FeedPage() {
   const [locationName, setLocationName]           = useState('')
   const [showLocationInput, setShowLocationInput] = useState(false)
   const [gpsLoading, setGpsLoading]               = useState(false)
-  const fileInputRef = useRef(null)
+  const fileInputRef                              = useRef(null)
+  const [startY, setStartY]                       = useState(0)
+  const feedContainerRef                          = useRef(null)
 
-  // Pull-to-refresh
-  const [startY, setStartY]         = useState(0)
-  const feedContainerRef            = useRef(null)
-
-  // ── Fetch feed ─────────────────────────────────────────────────────────────
-  // Note: pageRef.current is used directly — not in deps — to avoid loop
+  // Full feed fetch — only for initial load, sport change, manual refresh, new posts
   const fetchFeed = useCallback(async (isReset = true) => {
     if (isReset) {
       setLoading(true)
@@ -174,40 +177,58 @@ export default function FeedPage() {
     const hasMorePages = (data?.length || 0) === POSTS_PER_PAGE
     setHasMore(hasMorePages)
     if (hasMorePages) pageRef.current += 1
+  }, [sport])
 
-  }, [sport]) // ← only sport in deps, not page
+  // Smart single-post refresh — only re-fetches one post instead of the whole feed
+  const refreshSinglePost = useCallback(async (postId) => {
+    const updated = await fetchSinglePost(postId)
+    if (!updated) {
+      setPosts(prev => prev.filter(p => p.id !== postId))
+      return
+    }
+    setPosts(prev => {
+      const idx = prev.findIndex(p => p.id === postId)
+      if (idx === -1) return prev   // post not in current page, ignore
+      const next = [...prev]
+      next[idx]  = updated
+      return next
+    })
+  }, [])
 
-  // Reset when sport changes
   useEffect(() => { fetchFeed(true) }, [sport])
 
-  // Infinite scroll observer
+  // Infinite scroll
   useEffect(() => {
     if (loading || loadingMore || !hasMore) return
-
     const observer = new IntersectionObserver(
       entries => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          setLoadingMore(true)
-          fetchFeed(false)
-        }
+        if (entries[0].isIntersecting) { setLoadingMore(true); fetchFeed(false) }
       },
       { threshold: 0.1, rootMargin: '100px' }
     )
-
     if (lastPostRef.current) observer.observe(lastPostRef.current)
     return () => observer.disconnect()
   }, [loading, loadingMore, hasMore, posts.length, fetchFeed])
 
-  // Realtime
+  // Smart realtime — new post = full reload, like/comment = single post refresh
   useEffect(() => {
     const channel = supabase
-      .channel('posts-feed-v5')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' },    () => fetchFeed(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' },    () => fetchFeed(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, () => fetchFeed(true))
+      .channel('posts-feed-v6')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' },
+        () => fetchFeed(true))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' },
+        payload => setPosts(prev => prev.filter(p => p.id !== payload.old?.id)))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'likes' },
+        payload => { if (payload.new?.post_id) refreshSinglePost(payload.new.post_id) })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'likes' },
+        payload => { if (payload.old?.post_id) refreshSinglePost(payload.old.post_id) })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' },
+        payload => { if (payload.new?.post_id) refreshSinglePost(payload.new.post_id) })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'comments' },
+        payload => { if (payload.old?.post_id) refreshSinglePost(payload.old.post_id) })
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [fetchFeed])
+  }, [fetchFeed, refreshSinglePost])
 
   // Pull to refresh
   const handleTouchStart = e => { if (window.scrollY === 0 && !refreshing) setStartY(e.touches[0].clientY) }
@@ -219,7 +240,6 @@ export default function FeedPage() {
   }
   const handleTouchEnd = () => setStartY(0)
 
-  // Media
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
     setMediaFiles(prev    => [...prev, ...files].slice(0, 4))
@@ -228,21 +248,13 @@ export default function FeedPage() {
       setMediaPreviews(prev => [...prev, { url, type: file.type.startsWith('video') ? 'video' : 'image' }].slice(0, 4))
     })
   }
-
   function removeMedia(index) {
     setMediaFiles(prev    => prev.filter((_, i) => i !== index))
     setMediaPreviews(prev => prev.filter((_, i) => i !== index))
   }
-
   function resetComposer() {
-    setContent('')
-    setTaggedSport(null)
-    setMediaFiles([])
-    setMediaPreviews([])
-    setComposerOpen(false)
-    setShowSportPicker(false)
-    setLocationName('')
-    setShowLocationInput(false)
+    setContent(''); setTaggedSport(null); setMediaFiles([]); setMediaPreviews([])
+    setComposerOpen(false); setShowSportPicker(false); setLocationName(''); setShowLocationInput(false)
   }
 
   async function detectLocation() {
@@ -253,14 +265,10 @@ export default function FeedPage() {
         try {
           const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.latitude}&lon=${coords.longitude}&format=json`)
           const data = await res.json()
-          const place = data.address?.suburb || data.address?.city_district || data.address?.city || data.display_name
-          setLocationName(place || '')
+          setLocationName(data.address?.suburb || data.address?.city_district || data.address?.city || data.display_name || '')
           setShowLocationInput(true)
-        } catch {
-          alert('Could not get location name')
-        } finally {
-          setGpsLoading(false)
-        }
+        } catch { alert('Could not get location name') }
+        finally  { setGpsLoading(false) }
       },
       () => { setGpsLoading(false); alert('Location access denied') }
     )
@@ -282,47 +290,22 @@ export default function FeedPage() {
     return { urls, types }
   }
 
-  const username       = profile?.username || user?.email?.split('@')[0] || 'You'
-  const initial        = username.charAt(0).toUpperCase()
-  const hasAvatar      = profile?.avatar_url && profile?.avatar_type !== 'initials'
-  const avatarColors   = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
-  const avatarBg       = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
-  const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
-
   async function handlePost() {
     if (!user || (!content.trim() && mediaFiles.length === 0)) return
     setPosting(true)
     try {
-      const { urls: media_urls, types: media_types } = mediaFiles.length
-        ? await uploadMedia()
-        : { urls: [], types: [] }
-
+      const { urls: media_urls, types: media_types } = mediaFiles.length ? await uploadMedia() : { urls: [], types: [] }
       const now = new Date().toISOString()
-
       const { data: newPost, error } = await supabase.from('posts').insert([{
-        author_id:     user.id,
-        user_id:       user.id,
-        content:       content.trim(),
-        sport:         taggedSport || null,
-        media_urls,
-        media_types,
-        location_name: locationName.trim() || null,
-        created_at:    now,
-        inserted_at:   now,
+        author_id: user.id, user_id: user.id, content: content.trim(),
+        sport: taggedSport || null, media_urls, media_types,
+        location_name: locationName.trim() || null, created_at: now, inserted_at: now,
       }]).select().single()
-
       if (error) throw error
-
       if (content.includes('@') && newPost) {
-        await notifyMentions({
-          text:     content.trim(),
-          fromUser: { id: user.id, username },
-          postId:   newPost.id,
-        })
+        await notifyMentions({ text: content.trim(), fromUser: { id: user.id, username }, postId: newPost.id })
       }
-
       resetComposer()
-      fetchFeed(true)
     } catch (err) {
       alert('Failed to post: ' + err.message)
     } finally {
@@ -330,50 +313,45 @@ export default function FeedPage() {
     }
   }
 
+  const username       = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial        = username.charAt(0).toUpperCase()
+  const hasAvatar      = profile?.avatar_url && profile?.avatar_type !== 'initials'
+  const avatarColors   = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
+  const avatarBg       = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  const taggedSportObj = SPORTS.find(s => s.id === taggedSport)
+
   return (
-    <div
-      className="min-h-screen"
-      ref={feedContainerRef}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="min-h-screen" ref={feedContainerRef}
+      onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+
       {/* Header */}
       <div className="flex items-center justify-between mb-5 pt-2">
         <div>
           <h1 className="text-2xl font-black italic uppercase tracking-tighter" style={{ color: '#ffffff' }}>Feed</h1>
-          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.7 }}>
-            Real-time · OpenPlay
-          </p>
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.7 }}>Real-time · OpenPlay</p>
         </div>
-        <button
-          onClick={() => fetchFeed(true)}
-          className="p-2.5 rounded-xl border border-white/10 transition-colors hover:border-white/20"
-          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}
-        >
+        <button onClick={() => fetchFeed(true)} className="p-2.5 rounded-xl border border-white/10 hover:border-white/20 transition-colors"
+          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}>
           <RefreshCw size={15} />
         </button>
       </div>
 
       {refreshing && (
-        <div className="flex justify-center py-4 mb-2">
+        <div className="flex justify-center items-center py-4 mb-2 gap-2">
           <Loader2 className="animate-spin text-accent" size={20} />
-          <span className="text-xs text-ink-500 ml-2">Refreshing...</span>
+          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Refreshing...</span>
         </div>
       )}
 
       {/* Sport filter */}
       <div className="flex gap-2 pb-4 overflow-x-auto no-scrollbar">
         {ALL_SPORTS.map(s => (
-          <button
-            key={s.id}
-            onClick={() => setSport(s.id)}
+          <button key={s.id} onClick={() => setSport(s.id)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl text-[10px] font-black uppercase border-2 shrink-0 transition-all"
             style={sport === s.id
               ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 14px rgba(200,255,0,0.3)' }
               : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.45)' }
-            }
-          >
+            }>
             {s.emoji} {s.label}
           </button>
         ))}
@@ -383,41 +361,30 @@ export default function FeedPage() {
       {user && (
         <div className="mb-5">
           {!composerOpen ? (
-            <button
-              onClick={() => setComposerOpen(true)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left transition-all hover:border-white/20"
-              style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}
-            >
+            <button onClick={() => setComposerOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border text-left hover:border-white/20 transition-all"
+              style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)' }}>
               <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
-                {hasAvatar
-                  ? <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
-                  : <div className="w-full h-full flex items-center justify-center font-black text-sm" style={{ background: avatarBg, color: '#0a0a0f' }}>{initial}</div>
-                }
+                {hasAvatar ? <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                  : <div className="w-full h-full flex items-center justify-center font-black text-sm" style={{ background: avatarBg, color: '#0a0a0f' }}>{initial}</div>}
               </div>
-              <span className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                What's happening on court?
-              </span>
+              <span className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>What's happening on court?</span>
             </button>
           ) : (
             <div className="rounded-3xl border overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)' }}>
               <div className="flex items-center gap-3 px-4 pt-4 pb-2">
                 <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0">
-                  {hasAvatar
-                    ? <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center font-black text-sm" style={{ background: avatarBg, color: '#0a0a0f' }}>{initial}</div>
-                  }
+                  {hasAvatar ? <img src={profile.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center font-black text-sm" style={{ background: avatarBg, color: '#0a0a0f' }}>{initial}</div>}
                 </div>
                 <div>
                   <p className="text-sm font-black" style={{ color: '#ffffff' }}>@{username}</p>
                   {taggedSportObj ? (
-                    <button onClick={() => setTaggedSport(null)}
-                      className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-lg mt-0.5"
+                    <button onClick={() => setTaggedSport(null)} className="flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-lg mt-0.5"
                       style={{ background: 'rgba(200,255,0,0.12)', color: '#c8ff00' }}>
                       {taggedSportObj.emoji} {taggedSportObj.label} <X size={9} className="ml-1" />
                     </button>
-                  ) : (
-                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>General post</p>
-                  )}
+                  ) : <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>General post</p>}
                 </div>
               </div>
 
@@ -443,8 +410,7 @@ export default function FeedPage() {
                 <div className="mx-4 mb-3 flex items-center gap-2 px-3 py-2 rounded-xl border"
                   style={{ background: 'rgba(200,255,0,0.05)', borderColor: 'rgba(200,255,0,0.2)' }}>
                   <MapPin size={13} style={{ color: '#c8ff00' }} className="shrink-0" />
-                  <input value={locationName} onChange={e => setLocationName(e.target.value)}
-                    placeholder="Court or location name…"
+                  <input value={locationName} onChange={e => setLocationName(e.target.value)} placeholder="Court or location name…"
                     className="flex-1 bg-transparent text-xs outline-none" style={{ color: '#ffffff' }} />
                   <button onClick={() => { setLocationName(''); setShowLocationInput(false) }}>
                     <X size={12} style={{ color: 'rgba(255,255,255,0.3)' }} />
@@ -474,23 +440,21 @@ export default function FeedPage() {
 
               <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-xl transition-colors hover:bg-white/5" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                  <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-xl hover:bg-white/5 transition-colors" style={{ color: 'rgba(255,255,255,0.45)' }}>
                     <Image size={18} />
                   </button>
                   <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
-                  <button onClick={() => setShowSportPicker(!showSportPicker)} className="p-2 rounded-xl transition-colors hover:bg-white/5"
+                  <button onClick={() => setShowSportPicker(!showSportPicker)} className="p-2 rounded-xl hover:bg-white/5 transition-colors"
                     style={{ color: taggedSport ? '#c8ff00' : 'rgba(255,255,255,0.45)' }}>
                     <Hash size={18} />
                   </button>
                   <button onClick={() => showLocationInput ? setShowLocationInput(false) : detectLocation()}
-                    className="p-2 rounded-xl transition-colors hover:bg-white/5" disabled={gpsLoading}
+                    className="p-2 rounded-xl hover:bg-white/5 transition-colors" disabled={gpsLoading}
                     style={{ color: locationName ? '#c8ff00' : 'rgba(255,255,255,0.45)' }}>
                     {gpsLoading ? <Loader2 size={18} className="animate-spin" /> : <Navigation size={18} />}
                   </button>
-                  <button onClick={resetComposer} className="px-3 py-1.5 rounded-xl text-xs font-bold transition-colors hover:bg-white/5 ml-1"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}>
-                    Cancel
-                  </button>
+                  <button onClick={resetComposer} className="px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-white/5 transition-colors ml-1"
+                    style={{ color: 'rgba(255,255,255,0.3)' }}>Cancel</button>
                 </div>
                 <button onClick={handlePost} disabled={posting || (!content.trim() && mediaFiles.length === 0)}
                   className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-black uppercase transition-all disabled:opacity-40 active:scale-95"
@@ -518,13 +482,13 @@ export default function FeedPage() {
         <div className="space-y-4">
           {posts.map((post, index) => (
             <div key={post.id} ref={index === posts.length - 1 ? lastPostRef : null}>
-              <PostCard post={post} onRefresh={() => fetchFeed(true)} />
+              <PostCard post={post} onRefresh={() => refreshSinglePost(post.id)} />
             </div>
           ))}
           {loadingMore && (
-            <div className="flex justify-center py-4">
+            <div className="flex justify-center items-center py-4 gap-2">
               <Loader2 className="animate-spin" size={20} style={{ color: '#c8ff00' }} />
-              <span className="text-xs ml-2" style={{ color: 'rgba(255,255,255,0.3)' }}>Loading more...</span>
+              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Loading more...</span>
             </div>
           )}
         </div>

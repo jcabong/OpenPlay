@@ -10,18 +10,16 @@ const TIERS = [
   { id: 'global',   label: 'Global',   icon: Globe     },
 ]
 
-const TIER_COLORS = {
-  Beginner:     '#888780',
-  Casual:       '#60a5fa',
-  Intermediate: '#a78bfa',
-  Advanced:     '#fbbf24',
-  Elite:        '#c8ff00',
+function calcScore(wins, total) {
+  if (total === 0) return 0
+  const winRate = wins / total
+  return wins * 0.6 + winRate * 100 * 0.4
 }
 
 function Avatar({ user, size = 'md', accent = false }) {
-  const username = user?.username || '?'
-  const initial  = username.charAt(0).toUpperCase()
-  const hasAvatar = user?.avatar_url && user?.avatar_type !== 'initials'
+  const username   = user?.username || '?'
+  const initial    = username.charAt(0).toUpperCase()
+  const hasAvatar  = user?.avatar_url && user?.avatar_type !== 'initials'
 
   const sz = size === 'lg' ? 'w-14 h-14 text-xl rounded-[1.25rem]'
            : size === 'sm' ? 'w-9 h-9 text-sm rounded-xl'
@@ -34,25 +32,10 @@ function Avatar({ user, size = 'md', accent = false }) {
       </div>
     )
   }
-
   return (
-    <div className={`${sz} flex items-center justify-center font-bold shrink-0 ${
-      accent ? 'bg-accent text-ink-900' : 'bg-ink-700 text-ink-300'
-    }`}>
+    <div className={`${sz} flex items-center justify-center font-bold shrink-0 ${accent ? 'bg-accent text-ink-900' : 'bg-ink-700 text-ink-300'}`}>
       {initial}
     </div>
-  )
-}
-
-function SkillBadge({ tier }) {
-  const color = TIER_COLORS[tier] || TIER_COLORS.Casual
-  return (
-    <span
-      className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
-      style={{ color, background: `${color}18`, border: `1px solid ${color}40` }}
-    >
-      {tier}
-    </span>
   )
 }
 
@@ -64,14 +47,13 @@ function Podium({ board }) {
 
   return (
     <div className="flex items-end gap-2 mb-6 px-2">
-      {/* Second Place */}
       {second ? (
         <div className="flex-1 flex flex-col items-center gap-2">
           <Avatar user={second} size="md" />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{second.username}</p>
-            <p className="font-display font-bold text-lg text-ink-300 leading-none">{second.elo_rating}</p>
-            <SkillBadge tier={second.skill_tier} />
+            <p className="font-display font-bold text-lg text-ink-300 leading-none">{second.wins}W</p>
+            <p className="text-[9px] text-ink-600">{second.winRate}% WR</p>
           </div>
           <div className="w-full h-14 bg-ink-700 rounded-t-xl flex items-center justify-center">
             <span className="font-display font-bold text-ink-400 text-2xl">2</span>
@@ -79,28 +61,26 @@ function Podium({ board }) {
         </div>
       ) : <div className="flex-1" />}
 
-      {/* First Place */}
       <div className="flex-1 flex flex-col items-center gap-2">
         <div className="text-2xl">👑</div>
         <Avatar user={first} size="lg" accent />
         <div className="text-center">
           <p className="text-[9px] font-black text-accent truncate max-w-[80px]">@{first.username}</p>
-          <p className="font-display font-bold text-2xl text-accent leading-none">{first.elo_rating}</p>
-          <SkillBadge tier={first.skill_tier} />
+          <p className="font-display font-bold text-2xl text-accent leading-none">{first.wins}W</p>
+          <p className="text-[9px] text-accent/60">{first.winRate}% WR</p>
         </div>
         <div className="w-full h-20 bg-accent/20 border border-accent/30 rounded-t-xl flex items-center justify-center">
           <span className="font-display font-bold text-accent text-2xl">1</span>
         </div>
       </div>
 
-      {/* Third Place */}
       {third ? (
         <div className="flex-1 flex flex-col items-center gap-2">
           <Avatar user={third} size="md" />
           <div className="text-center">
             <p className="text-[9px] font-black text-ink-400 truncate max-w-[80px]">@{third.username}</p>
-            <p className="font-display font-bold text-lg text-orange-400 leading-none">{third.elo_rating}</p>
-            <SkillBadge tier={third.skill_tier} />
+            <p className="font-display font-bold text-lg text-orange-400 leading-none">{third.wins}W</p>
+            <p className="text-[9px] text-ink-600">{third.winRate}% WR</p>
           </div>
           <div className="w-full h-10 bg-orange-900/30 border border-orange-600/20 rounded-t-xl flex items-center justify-center">
             <span className="font-display font-bold text-orange-500 text-xl">3</span>
@@ -116,15 +96,10 @@ function ScopeSelector({ options, selected, onSelect, emoji }) {
   return (
     <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 px-5 mb-4">
       {options.map(o => (
-        <button
-          key={o}
-          onClick={() => onSelect(o)}
+        <button key={o} onClick={() => onSelect(o)}
           className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
-            selected === o
-              ? 'bg-accent text-ink-900 border-accent'
-              : 'bg-white/5 border-white/10 text-ink-500'
-          }`}
-        >
+            selected === o ? 'bg-accent text-ink-900 border-accent' : 'bg-white/5 border-white/10 text-ink-500'
+          }`}>
           {emoji} {o}
         </button>
       ))}
@@ -133,23 +108,25 @@ function ScopeSelector({ options, selected, onSelect, emoji }) {
 }
 
 export default function LeaderboardPage() {
-  const [sport, setSport]                   = useState('badminton')
-  const [tier, setTier]                     = useState('national')
-  const [board, setBoard]                   = useState([])
-  const [loading, setLoading]               = useState(true)
-  const [courtOptions, setCourtOptions]     = useState([])
-  const [selectedCourt, setSelectedCourt]   = useState('')
-  const [cityOptions, setCityOptions]       = useState([])
-  const [selectedCity, setSelectedCity]     = useState('')
-  const [provinceOptions, setProvinceOptions] = useState([])
+  const [sport, setSport]                       = useState('badminton')
+  const [tier, setTier]                         = useState('national')
+  const [board, setBoard]                       = useState([])
+  const [loading, setLoading]                   = useState(true)
+  const [courtOptions, setCourtOptions]         = useState([])
+  const [selectedCourt, setSelectedCourt]       = useState('')
+  const [cityOptions, setCityOptions]           = useState([])
+  const [selectedCity, setSelectedCity]         = useState('')
+  const [provinceOptions, setProvinceOptions]   = useState([])
   const [selectedProvince, setSelectedProvince] = useState('')
 
+  // fetchOptions: capped at 500 rows to prevent full-table egress
   const fetchOptions = useCallback(async () => {
     const { data } = await supabase
       .from('games')
       .select('court_name, city, province, user:users!user_id(city, username, avatar_url, avatar_type)')
       .eq('sport', sport)
       .eq('is_deleted', false)
+      .limit(500)                          // ← cap egress — was unlimited
 
     if (!data) return
 
@@ -173,16 +150,13 @@ export default function LeaderboardPage() {
 
     setLoading(true)
     try {
-      // Pull games to get scope-filtered player IDs, join user ELO data
       const { data, error } = await supabase
         .from('games')
-        .select(`
-          user_id, result, city, province, court_name,
-          user:users!user_id(id, username, city, elo_rating, skill_tier, avatar_url, avatar_type)
-        `)
+        .select('user_id, result, city, province, court_name, tagged_opponent_id, user:users!user_id(id, username, city, avatar_url, avatar_type)')
         .eq('sport', sport)
         .eq('is_deleted', false)
         .not('tagged_opponent_id', 'is', null)
+        .limit(1000)                       // ← cap at 1000 rows — enough for rankings
 
       if (error) {
         console.error('fetchBoard error:', error.message)
@@ -200,38 +174,34 @@ export default function LeaderboardPage() {
 
       if (rows.length === 0) { setBoard([]); setLoading(false); return }
 
-      // Dedupe by user_id — use live elo_rating from users table, tally wins/games for context
-      const seen = {}
-      rows.forEach(g => {
-        if (!g.user) return
-        const uid = g.user_id
-        if (!seen[uid]) {
-          seen[uid] = {
-            id:          uid,
-            username:    g.user.username    || '—',
-            avatar_url:  g.user.avatar_url,
-            avatar_type: g.user.avatar_type,
-            city:        g.city || g.user.city || '—',
-            province:    g.province          || '—',
-            elo_rating:  g.user.elo_rating   ?? 1000,
-            skill_tier:  g.user.skill_tier   ?? 'Casual',
-            wins:        0,
-            total:       0,
-          }
+      const tally = rows.reduce((acc, g) => {
+        const id  = g.user_id
+        const usr = g.user
+        if (!usr) return acc
+        if (!acc[id]) acc[id] = {
+          id:          id,
+          username:    usr.username || '—',
+          avatar_url:  usr.avatar_url,
+          avatar_type: usr.avatar_type,
+          city:        g.city || usr.city || '—',
+          province:    g.province || '—',
+          wins:        0,
+          total:       0,
         }
-        seen[uid].total++
-        if (g.result === 'win') seen[uid].wins++
-        // Keep most specific location data
-        if (g.city)     seen[uid].city     = g.city
-        if (g.province) seen[uid].province = g.province
-      })
+        acc[id].total++
+        if (g.result === 'win') acc[id].wins++
+        if (g.city)     acc[id].city     = g.city
+        if (g.province) acc[id].province = g.province
+        return acc
+      }, {})
 
-      const sorted = Object.values(seen)
+      const sorted = Object.values(tally)
         .map(p => ({
           ...p,
           winRate: p.total > 0 ? Math.round(p.wins / p.total * 100) : 0,
+          score:   calcScore(p.wins, p.total),
         }))
-        .sort((a, b) => b.elo_rating - a.elo_rating)
+        .sort((a, b) => b.score - a.score)
         .slice(0, 20)
 
       setBoard(sorted)
@@ -243,9 +213,8 @@ export default function LeaderboardPage() {
   useEffect(() => { fetchOptions() }, [fetchOptions])
   useEffect(() => { fetchBoard()   }, [fetchBoard])
 
-  const sportEmoji = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
-  const TierIcon   = TIERS.find(t => t.id === tier)?.icon || Trophy
-
+  const sportEmoji  = SPORTS.find(s => s.id === sport)?.emoji || '🏸'
+  const TierIcon    = TIERS.find(t => t.id === tier)?.icon || Trophy
   const contextLabel = {
     court:    selectedCourt    || 'Select a court',
     city:     selectedCity     || 'Select a city',
@@ -263,21 +232,18 @@ export default function LeaderboardPage() {
           <Trophy size={20} className="text-accent" />
           <h1 className="font-display text-3xl font-bold italic uppercase tracking-tighter text-white">Rankings</h1>
         </div>
-        <p className="text-accent text-[9px] font-black uppercase tracking-widest">ELO · Court · City · Province · National · Global</p>
+        <p className="text-accent text-[9px] font-black uppercase tracking-widest">Court · City · Province · National · Global</p>
       </div>
 
       {/* Sport filter */}
       <div className="flex gap-2 px-5 pb-4 overflow-x-auto no-scrollbar">
         {SPORTS.map(s => (
-          <button
-            key={s.id}
-            onClick={() => setSport(s.id)}
+          <button key={s.id} onClick={() => setSport(s.id)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all duration-200 ${
               sport === s.id
                 ? 'bg-accent text-ink-900 border-accent glow-accent scale-105'
                 : 'bg-white/5 border-white/10 text-ink-500 hover:border-white/20'
-            }`}
-          >
+            }`}>
             {s.emoji} {s.label}
           </button>
         ))}
@@ -289,13 +255,10 @@ export default function LeaderboardPage() {
           {TIERS.map(t => {
             const Icon = t.icon
             return (
-              <button
-                key={t.id}
-                onClick={() => setTier(t.id)}
+              <button key={t.id} onClick={() => setTier(t.id)}
                 className={`flex-1 py-2.5 text-[9px] font-black uppercase tracking-widest transition-all flex flex-col items-center gap-1 ${
                   tier === t.id ? 'bg-accent text-ink-900' : 'text-ink-300 hover:text-white'
-                }`}
-              >
+                }`}>
                 <Icon size={12} />
                 {t.label}
               </button>
@@ -348,17 +311,8 @@ export default function LeaderboardPage() {
           <Podium board={board} />
           {board.length > 3 && (
             <div className="glass rounded-[1.5rem] border border-white/10 overflow-hidden">
-              {/* Column header */}
-              <div className="flex items-center gap-3 px-4 py-2 border-b border-white/5"
-                style={{ background: 'rgba(255,255,255,0.02)' }}>
-                <div className="w-7 shrink-0" />
-                <div className="w-9 shrink-0" />
-                <p className="flex-1 text-[8px] font-black uppercase tracking-widest text-ink-600">Player</p>
-                <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 text-right">ELO · Tier · W/G</p>
-              </div>
-
               {board.slice(3).map((player, i) => (
-                <div key={player.id || player.username + i} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
+                <div key={player.username + i} className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
                   <div className="w-7 h-7 rounded-lg bg-ink-800 flex items-center justify-center font-bold text-sm text-ink-500 shrink-0">
                     {i + 4}
                   </div>
@@ -369,10 +323,10 @@ export default function LeaderboardPage() {
                       <MapPin size={8} /> {player.city}{player.province && player.province !== '—' ? ` · ${player.province}` : ''}
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-display font-bold text-lg text-accent italic leading-none">{player.elo_rating}</p>
-                    <SkillBadge tier={player.skill_tier} />
-                    <p className="text-[9px] text-ink-500 mt-0.5">{player.wins}W · {player.total}G</p>
+                  <div className="text-right">
+                    <p className="font-display font-bold text-lg text-accent italic leading-none">{player.wins}W</p>
+                    <p className="text-[9px] font-black text-ink-500 uppercase tracking-widest">{player.winRate}% WR</p>
+                    <p className="text-[9px] text-ink-500">{player.total} games</p>
                   </div>
                 </div>
               ))}
