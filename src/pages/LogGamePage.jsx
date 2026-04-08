@@ -249,7 +249,6 @@ async function ensureEloRecord(userId, sport) {
 
   if (data) return data
 
-  // Row doesn't exist — insert it
   const { data: created, error } = await supabase
     .from('player_elo')
     .insert({ user_id: userId, sport, elo_rating: 1000, wins: 0, losses: 0, matches_played: 0, skill_tier: 'Bronze' })
@@ -257,7 +256,6 @@ async function ensureEloRecord(userId, sport) {
     .single()
 
   if (error) {
-    // Could be a race condition — try fetching again
     const { data: retry } = await supabase
       .from('player_elo')
       .select('id, elo_rating, wins, losses, matches_played')
@@ -307,7 +305,6 @@ async function processMatchEloLocal({ sport, winnerId, loserId }) {
     if (r1.error) console.error('ELO winner update:', r1.error.message)
     if (r2.error) console.error('ELO loser update:',  r2.error.message)
 
-    // Mirror onto users table for profile quick-display
     await Promise.all([
       supabase.from('users').update({ elo_rating: newWElo, skill_tier: getSkillTier(newWElo) }).eq('id', winnerId),
       supabase.from('users').update({ elo_rating: newLElo, skill_tier: getSkillTier(newLElo) }).eq('id', loserId),
@@ -394,7 +391,7 @@ export default function LogGamePage() {
     try {
       const { urls: media_urls, types: media_types } = mediaFiles.length ? await uploadMedia() : { urls: [], types: [] }
 
-      // 1. My game
+      // 1. MY GAME
       const { data: game, error: gErr } = await supabase.from('games').insert([{
         user_id: user.id, sport: formData.sport, court_name: formData.court_name,
         city: formData.city, province: formData.province, result: formData.result,
@@ -405,7 +402,36 @@ export default function LogGamePage() {
       }]).select().single()
       if (gErr) throw gErr
 
-      // 2. ELO update
+      // 2. OPPONENT'S GAME (CRITICAL FIX - This was missing!)
+      if (taggedUser && formData.result === 'win') {
+        console.log('🔄 Recording opponent loss for:', taggedUser.username)
+        
+        const opponentGameData = {
+          user_id: taggedUser.id,
+          sport: formData.sport,
+          court_name: formData.court_name,
+          city: formData.city,
+          province: formData.province,
+          result: 'loss',
+          score: formData.score,
+          intensity: formData.intensity,
+          opponent_name: profile?.username || user.email?.split('@')[0] || 'opponent',
+          tagged_opponent_id: user.id,
+          created_at: new Date().toISOString(),
+        }
+        
+        const { error: opponentError } = await supabase
+          .from('games')
+          .insert([opponentGameData])
+        
+        if (opponentError) {
+          console.error('❌ Opponent sync FAILED:', opponentError)
+        } else {
+          console.log('✅ Opponent loss recorded')
+        }
+      }
+
+      // 3. ELO update
       if (taggedUser) {
         const winnerId = formData.result === 'win' ? user.id : taggedUser.id
         const loserId  = formData.result === 'win' ? taggedUser.id : user.id
@@ -519,9 +545,9 @@ export default function LogGamePage() {
                 className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
                 style={formData.result === r
                   ? r === 'win'
-                    ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
-                    : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
-                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)' }}>
+                    ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 20px rgba(200,255,0,0.25)' }
+                    : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 20px rgba(255,77,77,0.2)' }
+                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)' }>
                 {r.toUpperCase()}
               </button>
             ))}
