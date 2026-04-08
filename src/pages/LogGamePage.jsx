@@ -402,7 +402,7 @@ export default function LogGamePage() {
       }]).select().single()
       if (gErr) throw gErr
 
-      // 2. OPPONENT'S GAME (CRITICAL FIX - This was missing!)
+      // 2. OPPONENT'S GAME (CRITICAL FIX)
       if (taggedUser && formData.result === 'win') {
         console.log('🔄 Recording opponent loss for:', taggedUser.username)
         
@@ -543,11 +543,11 @@ export default function LogGamePage() {
             {['win', 'loss'].map(r => (
               <button key={r} type="button" onClick={() => setFormData({ ...formData, result: r })}
                 className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
-                style={formData.result === r
-                  ? r === 'win'
+                style={formData.result === r ? (
+                  r === 'win'
                     ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 20px rgba(200,255,0,0.25)' }
                     : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 20px rgba(255,77,77,0.2)' }
-                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)' }>
+                ) : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)' }}>
                 {r.toUpperCase()}
               </button>
             ))}
