@@ -4,6 +4,21 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare, TrendingUp, Star } from 'lucide-react'
 
+// Colour constants so everything is explicit and dark-theme safe
+const C = {
+  white:      '#ffffff',
+  accent:     '#c8ff00',
+  spark:      '#ff4d4d',
+  dim1:       'rgba(255,255,255,0.7)',
+  dim2:       'rgba(255,255,255,0.5)',
+  dim3:       'rgba(255,255,255,0.35)',
+  dim4:       'rgba(255,255,255,0.2)',
+  surface:    'rgba(255,255,255,0.04)',
+  surfaceHov: 'rgba(255,255,255,0.07)',
+  border:     'rgba(255,255,255,0.1)',
+  borderDim:  'rgba(255,255,255,0.06)',
+}
+
 const DEFAULT_AVATARS = [
   { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M'    },
   { id: 'avatar-2', src: '/avatars/avatar-2.jpeg', label: 'Badminton F'    },
@@ -32,8 +47,7 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
     const { error } = await supabase.storage.from('openplay-media').upload(path, file, { upsert: true })
     if (!error) {
       const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
-      setSelected(publicUrl)
-      setSelectedType('custom')
+      setSelected(publicUrl); setSelectedType('custom')
     }
     setUploading(false)
   }
@@ -41,17 +55,16 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
   async function handleSave() {
     setSaving(true)
     await onSave({ url: selected, type: selectedType })
-    setSaving(false)
-    onClose()
+    setSaving(false); onClose()
   }
 
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
       <div className="w-full rounded-t-[2.5rem] border-t border-white/10 p-6 max-h-[90vh] overflow-y-auto" style={{ background: '#0f0f1a' }}>
         <div className="flex justify-between items-center mb-5">
-          <h2 className="text-lg font-black italic uppercase text-white">Choose Avatar</h2>
-          <button onClick={onClose} className="p-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
-            <X size={18} className="text-white" />
+          <h2 className="text-lg font-black italic uppercase" style={{ color: C.white }}>Choose Avatar</h2>
+          <button onClick={onClose} className="p-2 rounded-xl" style={{ background: C.surface }}>
+            <X size={18} style={{ color: C.white }} />
           </button>
         </div>
         <div className="flex justify-center mb-5">
@@ -59,17 +72,16 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
             ? <img src={selected} alt="avatar" className="w-24 h-24 rounded-[1.5rem] object-cover border-2 border-accent" />
             : <div className="w-24 h-24 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl border-2 border-accent">
                 {(user?.email || 'U').charAt(0).toUpperCase()}
-              </div>
-          }
+              </div>}
         </div>
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl mb-5 text-sm font-black uppercase tracking-widest border-2 border-dashed transition-all"
-          style={{ borderColor: 'rgba(200,255,0,0.4)', color: '#c8ff00' }}>
+          style={{ borderColor: 'rgba(200,255,0,0.4)', color: C.accent }}>
           {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
           {uploading ? 'Uploading...' : 'Upload My Photo'}
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
-        <p className="text-[9px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>Default Avatars</p>
+        <p className="text-[9px] font-black uppercase tracking-widest mb-3" style={{ color: C.dim2 }}>Default Avatars</p>
         <div className="grid grid-cols-4 gap-3 mb-6">
           {DEFAULT_AVATARS.map(av => {
             const isSelected = selected === av.src && selectedType === 'default'
@@ -84,14 +96,14 @@ function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
                     <Check size={11} className="text-ink-900" />
                   </div>
                 )}
-                <span className="text-[9px] text-ink-500 font-bold text-center leading-tight">{av.label}</span>
+                <span className="text-[9px] font-bold text-center leading-tight" style={{ color: C.dim2 }}>{av.label}</span>
               </button>
             )
           })}
         </div>
         <button onClick={handleSave} disabled={saving || !selected}
           className="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm disabled:opacity-50"
-          style={{ background: '#c8ff00', color: '#0a0a0f' }}>
+          style={{ background: C.accent, color: '#0a0a0f' }}>
           {saving ? 'Saving...' : 'Save Avatar'}
         </button>
       </div>
@@ -103,25 +115,26 @@ function MatchRow({ game }) {
   const sport = SPORTS.find(s => s.id === game.sport)
   const isWin = game.result === 'win'
   return (
-    <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
-      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
+    <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: C.borderDim }}>
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0"
+        style={{ background: isWin ? 'rgba(200,255,0,0.1)' : 'rgba(255,77,77,0.1)' }}>
         {sport?.emoji || '🏸'}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-ink-100 truncate">
-          {sport?.label}
-          {game.opponent_name && <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span>}
+        <p className="text-sm font-bold truncate" style={{ color: C.white }}>
+          {sport?.label || game.sport}
+          {game.opponent_name && <span className="font-normal" style={{ color: C.dim2 }}> vs {game.opponent_name}</span>}
         </p>
         {game.court_name && (
-          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+          <p className="text-[10px] font-bold flex items-center gap-1 mt-0.5" style={{ color: C.dim3 }}>
             <MapPin size={8} />{game.court_name}{game.city ? ` · ${game.city}` : ''}
           </p>
         )}
       </div>
       <div className="text-right shrink-0">
-        <p className={`text-xs font-black uppercase ${isWin ? 'text-accent' : 'text-spark'}`}>{isWin ? 'WIN' : 'LOSS'}</p>
-        {game.score && <p className="text-[10px] text-ink-500">{game.score}</p>}
-        <p className="text-[9px] text-ink-700 mt-0.5">
+        <p className="text-xs font-black uppercase" style={{ color: isWin ? C.accent : C.spark }}>{isWin ? 'WIN' : 'LOSS'}</p>
+        {game.score && <p className="text-[10px]" style={{ color: C.dim3 }}>{game.score}</p>}
+        <p className="text-[9px] mt-0.5" style={{ color: C.dim4 }}>
           {new Date(game.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
         </p>
       </div>
@@ -133,26 +146,26 @@ function PostRow({ post }) {
   const sport    = SPORTS.find(s => s.id === post.sport)
   const hasMedia = post.media_urls?.length > 0
   return (
-    <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
-      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 bg-white/5">
+    <div className="flex items-start gap-3 p-4 border-b" style={{ borderColor: C.borderDim }}>
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0" style={{ background: C.surface }}>
         {sport ? sport.emoji : '💬'}
       </div>
       <div className="flex-1 min-w-0">
-        {sport && <span className="text-[9px] font-black uppercase tracking-widest text-accent mb-1 block">{sport.label}</span>}
-        {post.content && <p className="text-sm text-ink-200 leading-relaxed line-clamp-2">{post.content}</p>}
-        {hasMedia && <p className="text-[9px] text-ink-600 font-bold mt-1">📎 {post.media_urls.length} media attached</p>}
+        {sport && <span className="text-[9px] font-black uppercase tracking-widest mb-1 block" style={{ color: C.accent }}>{sport.label}</span>}
+        {post.content && <p className="text-sm leading-relaxed line-clamp-2" style={{ color: C.dim1 }}>{post.content}</p>}
+        {hasMedia && <p className="text-[9px] font-bold mt-1" style={{ color: C.dim3 }}>📎 {post.media_urls.length} media</p>}
         {post.location_name && (
-          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+          <p className="text-[9px] font-bold flex items-center gap-1 mt-0.5" style={{ color: C.dim3 }}>
             <MapPin size={8} />{post.location_name}
           </p>
         )}
       </div>
       <div className="text-right shrink-0">
-        <div className="flex items-center gap-1 text-ink-600 text-[10px] font-bold justify-end">
+        <div className="flex items-center gap-1 text-[10px] font-bold justify-end" style={{ color: C.dim3 }}>
           <MessageSquare size={10} />{post.comments?.length || 0}
         </div>
-        <p className="text-[9px] text-ink-700 mt-1">
-          {new Date(post.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+        <p className="text-[9px] mt-1" style={{ color: C.dim4 }}>
+          {new Date(post.created_at || post.inserted_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
         </p>
       </div>
     </div>
@@ -165,20 +178,19 @@ function EloRow({ sport, elo, wins, losses }) {
              : elo >= 1200 ? { label: 'Advanced', color: '#c8ff00' }
              : elo >= 1100 ? { label: 'Skilled',  color: '#60a5fa' }
              : elo >= 1000 ? { label: 'Ranked',   color: '#a78bfa' }
-             :               { label: 'Rookie',   color: 'rgba(255,255,255,0.4)' }
+             :               { label: 'Rookie',   color: 'rgba(255,255,255,0.5)' }
   return (
-    <div className="flex items-center justify-between p-3 rounded-2xl border border-white/8"
-      style={{ background: 'rgba(255,255,255,0.03)' }}>
+    <div className="flex items-center justify-between p-3 rounded-2xl border" style={{ background: C.surface, borderColor: C.borderDim }}>
       <div className="flex items-center gap-3">
         <span className="text-xl">{sportObj?.emoji}</span>
         <div>
-          <p className="text-xs font-black" style={{ color: '#ffffff' }}>{sportObj?.label}</p>
+          <p className="text-xs font-black" style={{ color: C.white }}>{sportObj?.label}</p>
           <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: tier.color }}>{tier.label}</p>
         </div>
       </div>
       <div className="text-right">
         <p className="font-display font-bold text-xl italic leading-none" style={{ color: tier.color }}>{elo}</p>
-        <p className="text-[9px] text-ink-500">{wins}W · {losses}L</p>
+        <p className="text-[9px]" style={{ color: C.dim3 }}>{wins}W · {losses}L</p>
       </div>
     </div>
   )
@@ -187,21 +199,17 @@ function EloRow({ sport, elo, wins, losses }) {
 function ReputationBadge({ label, value, emoji }) {
   const stars = Math.round(value || 0)
   return (
-    <div className="flex-1 p-3 rounded-2xl border border-white/8 text-center"
-      style={{ background: 'rgba(255,255,255,0.03)' }}>
+    <div className="flex-1 p-3 rounded-2xl border text-center" style={{ background: C.surface, borderColor: C.borderDim }}>
       <p className="text-base mb-1">{emoji}</p>
-      <p className="font-display font-bold text-lg text-accent leading-none">
+      <p className="font-display font-bold text-lg leading-none" style={{ color: C.accent }}>
         {value > 0 ? Number(value).toFixed(1) : '—'}
       </p>
       <div className="flex justify-center gap-0.5 my-1">
         {[1,2,3,4,5].map(s => (
-          <Star key={s} size={8} style={{
-            fill:   s <= stars ? '#c8ff00' : 'transparent',
-            stroke: s <= stars ? '#c8ff00' : 'rgba(255,255,255,0.2)',
-          }} />
+          <Star key={s} size={8} style={{ fill: s <= stars ? C.accent : 'transparent', stroke: s <= stars ? C.accent : C.dim4 }} />
         ))}
       </div>
-      <p className="text-[8px] font-black uppercase tracking-widest text-ink-600">{label}</p>
+      <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: C.dim3 }}>{label}</p>
     </div>
   )
 }
@@ -229,13 +237,8 @@ export default function ProfilePage() {
     if (!user) { navigate('/login'); return }
     loadAll()
     if (profile) {
-      setFormData({
-        display_name: profile.display_name || '',
-        bio:          profile.bio          || '',
-        city:         profile.city         || '',
-        region:       profile.region       || '',
-      })
-      setAvatarUrl(profile.avatar_url   || null)
+      setFormData({ display_name: profile.display_name || '', bio: profile.bio || '', city: profile.city || '', region: profile.region || '' })
+      setAvatarUrl(profile.avatar_url || null)
       setAvatarType(profile.avatar_type || 'initials')
     }
   }, [user, profile])
@@ -247,26 +250,36 @@ export default function ProfilePage() {
   }
 
   async function loadGames() {
-    const { data } = await supabase
-      .from('games').select('*').eq('user_id', user.id).eq('is_deleted', false)
+    // Use OR to handle both NULL and false for is_deleted
+    const { data, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('user_id', user.id)
+      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: false })
+    if (error) console.error('loadGames error:', error.message)
     setGames(data || [])
   }
 
   async function loadPosts() {
-    const { data } = await supabase
-      .from('posts').select('*, comments(id)').eq('author_id', user.id).eq('is_deleted', false)
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, comments(id)')
+      .eq('author_id', user.id)
+      .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: false })
+    if (error) console.error('loadPosts error:', error.message)
     setPosts(data || [])
   }
 
   async function loadElo() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('player_elo')
       .select('sport, elo_rating, wins, losses, matches_played')
       .eq('user_id', user.id)
       .gte('matches_played', 1)
       .order('elo_rating', { ascending: false })
+    if (error) console.error('loadElo error:', error.message)
     setEloRatings(data || [])
   }
 
@@ -278,21 +291,15 @@ export default function ProfilePage() {
   async function handleSaveProfile() {
     setSaving(true)
     const { error } = await supabase.from('users').update({
-      display_name: formData.display_name,
-      bio:          formData.bio,
-      city:         formData.city,
-      region:       formData.region,
+      display_name: formData.display_name, bio: formData.bio, city: formData.city, region: formData.region,
     }).eq('id', user.id)
-    if (!error) {
-      setEditing(false); refreshProfile()
-      setSaveMsg('Profile updated!'); setTimeout(() => setSaveMsg(''), 3000)
-    } else {
-      setSaveMsg('Error updating profile'); setTimeout(() => setSaveMsg(''), 3000)
-    }
+    if (!error) { setEditing(false); refreshProfile(); setSaveMsg('Profile updated!'); setTimeout(() => setSaveMsg(''), 3000) }
+    else { setSaveMsg('Error updating profile'); setTimeout(() => setSaveMsg(''), 3000) }
     setSaving(false)
   }
 
   const totalWins    = games.filter(g => g.result === 'win').length
+  const totalLosses  = games.filter(g => g.result === 'loss').length
   const totalMatches = games.length
   const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
   const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
@@ -300,16 +307,16 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-ink-900 flex items-center justify-center">
-        <Loader2 className="animate-spin text-accent" size={28} />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0a0f' }}>
+        <Loader2 className="animate-spin" size={28} style={{ color: C.accent }} />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
+    <div className="min-h-screen pb-28" style={{ background: '#0a0a0f' }}>
       <div className="px-5 pt-14 pb-2">
-        <h1 className="text-2xl font-black italic uppercase tracking-tighter" style={{ color: '#ffffff' }}>My Profile</h1>
+        <h1 className="text-2xl font-black italic uppercase tracking-tighter" style={{ color: C.white }}>My Profile</h1>
       </div>
 
       {/* Avatar + identity */}
@@ -317,11 +324,10 @@ export default function ProfilePage() {
         <div className="relative w-20 h-20 mb-3">
           {avatarUrl && avatarType !== 'initials'
             ? <img src={avatarUrl} alt="avatar" className="w-20 h-20 rounded-[1.5rem] object-cover" />
-            : <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl">{initial}</div>
-          }
+            : <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl">{initial}</div>}
           <button onClick={() => setShowAvatarPicker(true)}
             className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center border-2 border-ink-900"
-            style={{ background: '#c8ff00' }}>
+            style={{ background: C.accent }}>
             <Camera size={13} className="text-ink-900" />
           </button>
         </div>
@@ -329,82 +335,100 @@ export default function ProfilePage() {
         {!editing ? (
           <>
             <div className="flex items-center gap-2">
-              <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter text-white">
+              <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter" style={{ color: C.white }}>
                 {profile?.display_name || `@${profile?.username}`}
               </h1>
               <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-white/10">
-                <Edit2 size={14} className="text-ink-500" />
+                <Edit2 size={14} style={{ color: C.dim2 }} />
               </button>
             </div>
-            <p className="text-accent text-sm font-bold mt-0.5">@{profile?.username}</p>
+            <p className="text-sm font-bold mt-0.5" style={{ color: C.accent }}>@{profile?.username}</p>
             {(profile?.city || profile?.region) && (
-              <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-1.5">
-                <MapPin size={11} className="text-accent" />
+              <div className="flex items-center gap-1.5 text-xs font-bold mt-1.5" style={{ color: C.dim2 }}>
+                <MapPin size={11} style={{ color: C.accent }} />
                 {[profile?.city, profile?.region].filter(Boolean).join(', ')}
               </div>
             )}
-            {profile?.bio && <p className="text-ink-300 text-sm mt-3 leading-relaxed max-w-sm">{profile.bio}</p>}
-            {saveMsg && <p className={`text-xs font-bold mt-2 ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>{saveMsg}</p>}
+            {profile?.bio && <p className="text-sm mt-3 leading-relaxed max-w-sm" style={{ color: C.dim1 }}>{profile.bio}</p>}
+            {saveMsg && <p className="text-xs font-bold mt-2" style={{ color: saveMsg.includes('Error') ? C.spark : C.accent }}>{saveMsg}</p>}
           </>
         ) : (
           <div className="space-y-3 mt-2">
-            <input type="text" value={formData.display_name} onChange={e => setFormData({ ...formData, display_name: e.target.value })}
-              placeholder="Display name"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white" />
+            {[
+              { key: 'display_name', placeholder: 'Display name' },
+              { key: 'city',         placeholder: 'City'         },
+              { key: 'region',       placeholder: 'Region/Province' },
+            ].map(({ key, placeholder }) => (
+              <input key={key} type="text" value={formData[key]} onChange={e => setFormData({ ...formData, [key]: e.target.value })}
+                placeholder={placeholder}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none"
+                style={{ background: C.surface, borderColor: C.border, color: C.white }} />
+            ))}
             <textarea value={formData.bio} onChange={e => setFormData({ ...formData, bio: e.target.value })}
               placeholder="Bio" rows={3}
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white resize-none" />
-            <input type="text" value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })}
-              placeholder="City"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white" />
-            <input type="text" value={formData.region} onChange={e => setFormData({ ...formData, region: e.target.value })}
-              placeholder="Region/Province"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white" />
-            {saveMsg && <p className={`text-xs font-bold ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>{saveMsg}</p>}
+              className="w-full px-4 py-3 rounded-xl border focus:outline-none resize-none"
+              style={{ background: C.surface, borderColor: C.border, color: C.white }} />
+            {saveMsg && <p className="text-xs font-bold" style={{ color: saveMsg.includes('Error') ? C.spark : C.accent }}>{saveMsg}</p>}
             <div className="flex gap-2">
               <button onClick={handleSaveProfile} disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-accent text-ink-900 font-bold text-sm flex items-center justify-center gap-2">
+                className="flex-1 py-2 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                style={{ background: C.accent, color: '#0a0a0f' }}>
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
               </button>
-              <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl bg-white/5 text-ink-400 font-bold text-sm">Cancel</button>
+              <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl font-bold text-sm"
+                style={{ background: C.surface, color: C.dim2 }}>Cancel</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Quick stats */}
+      {/* Stats grid */}
       <div className="grid grid-cols-3 gap-3 px-4 mb-5">
         {[
-          { val: totalWins,     label: 'Wins'      },
-          { val: `${winRate}%`, label: 'Win Rate'  },
-          { val: totalMatches,  label: 'Matches'   },
+          { val: totalWins,     label: 'Wins'     },
+          { val: `${winRate}%`, label: 'Win Rate' },
+          { val: totalMatches,  label: 'Matches'  },
         ].map(({ val, label }) => (
-          <div key={label} className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
-            <p className="font-display text-2xl font-bold text-accent italic">{val}</p>
-            <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">{label}</p>
+          <div key={label} className="p-3.5 rounded-[1.25rem] border text-center glass" style={{ borderColor: C.borderDim }}>
+            <p className="font-display text-2xl font-bold italic" style={{ color: C.accent }}>{val}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest mt-1" style={{ color: C.dim3 }}>{label}</p>
           </div>
         ))}
       </div>
 
+      {/* Win/loss bar — only shown when there are matches */}
+      {totalMatches > 0 && (
+        <div className="px-4 mb-5">
+          <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: C.surface }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${winRate}%`, background: C.accent }} />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[9px] font-black uppercase" style={{ color: C.accent }}>{totalWins}W</span>
+            <span className="text-[9px] font-black uppercase" style={{ color: C.spark }}>{totalLosses}L</span>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="px-4 mb-4">
-        <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
+        <div className="flex rounded-2xl overflow-hidden border glass" style={{ borderColor: C.border }}>
           {TABS.map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
-                activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
-              }`}>
+              className="flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5"
+              style={activeTab === tab ? { background: C.accent, color: '#0a0a0f' } : { color: C.dim2 }}>
               {tab === 'Matches' && <Trophy size={12} />}
               {tab === 'Posts'   && <MessageSquare size={12} />}
               {tab === 'Stats'   && <TrendingUp size={12} />}
               {tab}
               {tab === 'Matches' && (
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'}`}>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={activeTab === tab ? { background: 'rgba(10,10,15,0.2)', color: '#0a0a0f' } : { background: C.surface, color: C.dim3 }}>
                   {totalMatches}
                 </span>
               )}
               {tab === 'Posts' && (
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'}`}>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={activeTab === tab ? { background: 'rgba(10,10,15,0.2)', color: '#0a0a0f' } : { background: C.surface, color: C.dim3 }}>
                   {posts.length}
                 </span>
               )}
@@ -415,63 +439,53 @@ export default function ProfilePage() {
 
       {/* Tab content */}
       <div className="px-4">
-
         {activeTab === 'Matches' && (
           games.length === 0
-            ? <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">No matches yet</div>
-            : <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-                {games.map(game => <MatchRow key={game.id} game={game} />)}
+            ? <div className="text-center py-14 text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No matches yet</div>
+            : <div className="rounded-[2rem] border overflow-hidden glass" style={{ borderColor: C.border }}>
+                {games.map(g => <MatchRow key={g.id} game={g} />)}
               </div>
         )}
 
         {activeTab === 'Posts' && (
           posts.length === 0
-            ? <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">No posts yet</div>
-            : <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-                {posts.map(post => <PostRow key={post.id} post={post} />)}
+            ? <div className="text-center py-14 text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No posts yet</div>
+            : <div className="rounded-[2rem] border overflow-hidden glass" style={{ borderColor: C.border }}>
+                {posts.map(p => <PostRow key={p.id} post={p} />)}
               </div>
         )}
 
         {activeTab === 'Stats' && (
           <div className="space-y-6">
-
-            {/* ELO per sport */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <TrendingUp size={13} className="text-accent" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-ink-500">ELO Ratings</p>
+                <TrendingUp size={13} style={{ color: C.accent }} />
+                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.dim2 }}>ELO Ratings</p>
               </div>
               {eloRatings.length === 0 ? (
-                <div className="glass rounded-2xl border border-white/10 p-5 text-center">
-                  <p className="text-ink-600 text-xs font-black uppercase tracking-widest">No ELO yet</p>
-                  <p className="text-ink-700 text-xs mt-1">Log a match with a tagged opponent to earn your rating</p>
+                <div className="rounded-2xl border p-5 text-center glass" style={{ borderColor: C.border }}>
+                  <p className="text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No ELO yet</p>
+                  <p className="text-xs mt-1" style={{ color: C.dim4 }}>Log a match with a tagged opponent to earn your rating</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {eloRatings.map(r => (
-                    <EloRow key={r.sport} sport={r.sport} elo={r.elo_rating} wins={r.wins} losses={r.losses} />
-                  ))}
+                  {eloRatings.map(r => <EloRow key={r.sport} sport={r.sport} elo={r.elo_rating} wins={r.wins} losses={r.losses} />)}
                 </div>
               )}
             </div>
 
-            {/* Reputation */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Star size={13} className="text-accent" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-ink-500">
+                <Star size={13} style={{ color: C.accent }} />
+                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.dim2 }}>
                   Reputation
-                  {hasReputation && (
-                    <span className="ml-2 text-ink-700">
-                      · {profile.rating_count} rating{profile.rating_count !== 1 ? 's' : ''}
-                    </span>
-                  )}
+                  {hasReputation && <span className="ml-2" style={{ color: C.dim3 }}>· {profile.rating_count} rating{profile.rating_count !== 1 ? 's' : ''}</span>}
                 </p>
               </div>
               {!hasReputation ? (
-                <div className="glass rounded-2xl border border-white/10 p-5 text-center">
-                  <p className="text-ink-600 text-xs font-black uppercase tracking-widest">No ratings yet</p>
-                  <p className="text-ink-700 text-xs mt-1">Play matches and get rated by your opponents</p>
+                <div className="rounded-2xl border p-5 text-center glass" style={{ borderColor: C.border }}>
+                  <p className="text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No ratings yet</p>
+                  <p className="text-xs mt-1" style={{ color: C.dim4 }}>Play matches and get rated by your opponents</p>
                 </div>
               ) : (
                 <div className="flex gap-2">
@@ -481,7 +495,6 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
-
           </div>
         )}
       </div>

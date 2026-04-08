@@ -1,57 +1,47 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { Trophy, Clock, MapPin, ArrowLeft, Loader2, Swords, TrendingUp, Star, MessageSquare } from 'lucide-react'
+import { Trophy, MapPin, ArrowLeft, Loader2, TrendingUp, Star, MessageSquare } from 'lucide-react'
 
-function EloRow({ sport, elo, wins, losses }) {
-  const sportObj = SPORTS.find(s => s.id === sport)
-  const tier = elo >= 1400 ? { label: 'Elite',    color: '#f59e0b' }
-             : elo >= 1200 ? { label: 'Advanced', color: '#c8ff00' }
-             : elo >= 1100 ? { label: 'Skilled',  color: '#60a5fa' }
-             : elo >= 1000 ? { label: 'Ranked',   color: '#a78bfa' }
-             :               { label: 'Rookie',   color: 'rgba(255,255,255,0.4)' }
-  return (
-    <div className="flex items-center justify-between p-3 rounded-2xl border border-white/8"
-      style={{ background: 'rgba(255,255,255,0.03)' }}>
-      <div className="flex items-center gap-3">
-        <span className="text-xl">{sportObj?.emoji}</span>
-        <div>
-          <p className="text-xs font-black" style={{ color: '#ffffff' }}>{sportObj?.label}</p>
-          <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: tier.color }}>{tier.label}</p>
-        </div>
-      </div>
-      <div className="text-right">
-        <p className="font-display font-bold text-xl italic leading-none" style={{ color: tier.color }}>{elo}</p>
-        <p className="text-[9px] text-ink-500">{wins}W · {losses}L</p>
-      </div>
-    </div>
-  )
+// Same colour constants as ProfilePage for consistency
+const C = {
+  white:      '#ffffff',
+  accent:     '#c8ff00',
+  spark:      '#ff4d4d',
+  dim1:       'rgba(255,255,255,0.7)',
+  dim2:       'rgba(255,255,255,0.5)',
+  dim3:       'rgba(255,255,255,0.35)',
+  dim4:       'rgba(255,255,255,0.2)',
+  surface:    'rgba(255,255,255,0.04)',
+  border:     'rgba(255,255,255,0.1)',
+  borderDim:  'rgba(255,255,255,0.06)',
 }
 
 function MatchRow({ game }) {
   const sport = SPORTS.find(s => s.id === game.sport)
   const isWin = game.result === 'win'
   return (
-    <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
-      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
+    <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: C.borderDim }}>
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0"
+        style={{ background: isWin ? 'rgba(200,255,0,0.1)' : 'rgba(255,77,77,0.1)' }}>
         {sport?.emoji || '🏸'}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-ink-100 truncate">
-          {sport?.label}
-          {game.opponent_name && <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span>}
+        <p className="text-sm font-bold truncate" style={{ color: C.white }}>
+          {sport?.label || game.sport}
+          {game.opponent_name && <span className="font-normal" style={{ color: C.dim2 }}> vs {game.opponent_name}</span>}
         </p>
         {game.court_name && (
-          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+          <p className="text-[10px] font-bold flex items-center gap-1 mt-0.5" style={{ color: C.dim3 }}>
             <MapPin size={8} />{game.court_name}{game.city ? ` · ${game.city}` : ''}
           </p>
         )}
       </div>
       <div className="text-right shrink-0">
-        <p className={`text-xs font-black uppercase ${isWin ? 'text-accent' : 'text-spark'}`}>{isWin ? 'WIN' : 'LOSS'}</p>
-        {game.score && <p className="text-[10px] text-ink-500">{game.score}</p>}
-        <p className="text-[9px] text-ink-700 mt-0.5">
+        <p className="text-xs font-black uppercase" style={{ color: isWin ? C.accent : C.spark }}>{isWin ? 'WIN' : 'LOSS'}</p>
+        {game.score && <p className="text-[10px]" style={{ color: C.dim3 }}>{game.score}</p>}
+        <p className="text-[9px] mt-0.5" style={{ color: C.dim4 }}>
           {new Date(game.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
         </p>
       </div>
@@ -63,27 +53,51 @@ function PostRow({ post }) {
   const sport    = SPORTS.find(s => s.id === post.sport)
   const hasMedia = post.media_urls?.length > 0
   return (
-    <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
-      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 bg-white/5">
+    <div className="flex items-start gap-3 p-4 border-b" style={{ borderColor: C.borderDim }}>
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0" style={{ background: C.surface }}>
         {sport ? sport.emoji : '💬'}
       </div>
       <div className="flex-1 min-w-0">
-        {sport && <span className="text-[9px] font-black uppercase tracking-widest text-accent mb-1 block">{sport.label}</span>}
-        {post.content && <p className="text-sm text-ink-200 leading-relaxed line-clamp-2">{post.content}</p>}
-        {hasMedia && <p className="text-[9px] text-ink-600 font-bold mt-1">📎 {post.media_urls.length} media attached</p>}
+        {sport && <span className="text-[9px] font-black uppercase tracking-widest mb-1 block" style={{ color: C.accent }}>{sport.label}</span>}
+        {post.content && <p className="text-sm leading-relaxed line-clamp-2" style={{ color: C.dim1 }}>{post.content}</p>}
+        {hasMedia && <p className="text-[9px] font-bold mt-1" style={{ color: C.dim3 }}>📎 {post.media_urls.length} media</p>}
         {post.location_name && (
-          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+          <p className="text-[9px] font-bold flex items-center gap-1 mt-0.5" style={{ color: C.dim3 }}>
             <MapPin size={8} />{post.location_name}
           </p>
         )}
       </div>
       <div className="text-right shrink-0">
-        <div className="flex items-center gap-1 text-ink-600 text-[10px] font-bold justify-end">
+        <div className="flex items-center gap-1 text-[10px] font-bold justify-end" style={{ color: C.dim3 }}>
           <MessageSquare size={10} />{post.comments?.length || 0}
         </div>
-        <p className="text-[9px] text-ink-700 mt-1">
+        <p className="text-[9px] mt-1" style={{ color: C.dim4 }}>
           {new Date(post.inserted_at || post.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
         </p>
+      </div>
+    </div>
+  )
+}
+
+function EloRow({ sport, elo, wins, losses }) {
+  const sportObj = SPORTS.find(s => s.id === sport)
+  const tier = elo >= 1400 ? { label: 'Elite',    color: '#f59e0b' }
+             : elo >= 1200 ? { label: 'Advanced', color: '#c8ff00' }
+             : elo >= 1100 ? { label: 'Skilled',  color: '#60a5fa' }
+             : elo >= 1000 ? { label: 'Ranked',   color: '#a78bfa' }
+             :               { label: 'Rookie',   color: 'rgba(255,255,255,0.5)' }
+  return (
+    <div className="flex items-center justify-between p-3 rounded-2xl border" style={{ background: C.surface, borderColor: C.borderDim }}>
+      <div className="flex items-center gap-3">
+        <span className="text-xl">{sportObj?.emoji}</span>
+        <div>
+          <p className="text-xs font-black" style={{ color: C.white }}>{sportObj?.label}</p>
+          <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: tier.color }}>{tier.label}</p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className="font-display font-bold text-xl italic leading-none" style={{ color: tier.color }}>{elo}</p>
+        <p className="text-[9px]" style={{ color: C.dim3 }}>{wins}W · {losses}L</p>
       </div>
     </div>
   )
@@ -92,21 +106,17 @@ function PostRow({ post }) {
 function ReputationBadge({ label, value, emoji }) {
   const stars = Math.round(value || 0)
   return (
-    <div className="flex-1 p-3 rounded-2xl border border-white/8 text-center"
-      style={{ background: 'rgba(255,255,255,0.03)' }}>
+    <div className="flex-1 p-3 rounded-2xl border text-center" style={{ background: C.surface, borderColor: C.borderDim }}>
       <p className="text-base mb-1">{emoji}</p>
-      <p className="font-display font-bold text-lg text-accent leading-none">
+      <p className="font-display font-bold text-lg leading-none" style={{ color: C.accent }}>
         {value > 0 ? Number(value).toFixed(1) : '—'}
       </p>
       <div className="flex justify-center gap-0.5 my-1">
         {[1,2,3,4,5].map(s => (
-          <Star key={s} size={8} style={{
-            fill:   s <= stars ? '#c8ff00' : 'transparent',
-            stroke: s <= stars ? '#c8ff00' : 'rgba(255,255,255,0.2)',
-          }} />
+          <Star key={s} size={8} style={{ fill: s <= stars ? C.accent : 'transparent', stroke: s <= stars ? C.accent : C.dim4 }} />
         ))}
       </div>
-      <p className="text-[8px] font-black uppercase tracking-widest text-ink-600">{label}</p>
+      <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: C.dim3 }}>{label}</p>
     </div>
   )
 }
@@ -114,9 +124,9 @@ function ReputationBadge({ label, value, emoji }) {
 const TABS = ['Matches', 'Posts', 'Stats']
 
 export default function PublicProfilePage() {
-  const { userId } = useParams()
+  const { userId }            = useParams()
   const { user: currentUser } = useAuth()
-  const navigate = useNavigate()
+  const navigate              = useNavigate()
 
   const [profile, setProfile]       = useState(null)
   const [games, setGames]           = useState([])
@@ -126,56 +136,43 @@ export default function PublicProfilePage() {
   const [notFound, setNotFound]     = useState(false)
   const [activeTab, setActiveTab]   = useState('Matches')
 
-  // Redirect own profile
+  // Redirect to own profile
   useEffect(() => {
-    if (currentUser && userId === currentUser.id) {
-      navigate('/profile', { replace: true })
-    }
+    if (currentUser && userId === currentUser.id) navigate('/profile', { replace: true })
   }, [currentUser, userId, navigate])
 
   useEffect(() => {
-    if (userId && (!currentUser || userId !== currentUser.id)) {
-      fetchData()
-    }
+    if (userId && (!currentUser || userId !== currentUser.id)) fetchData()
   }, [userId, currentUser])
 
   async function fetchData() {
-    setLoading(true)
-    setNotFound(false)
-
+    setLoading(true); setNotFound(false)
     try {
-      // Detect UUID vs username
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
 
-      let query = supabase
+      // Fetch profile — include reputation & ELO fields
+      const { data: p, error } = await supabase
         .from('users')
         .select('id, username, display_name, avatar_url, avatar_type, city, region, bio, created_at, elo_rating, skill_tier, avg_skill, avg_sportsmanship, avg_reliability, rating_count')
+        [isUUID ? 'eq' : 'eq'](...(isUUID ? ['id', userId] : ['username', userId]))
+        .maybeSingle()
 
-      query = isUUID ? query.eq('id', userId) : query.eq('username', userId)
-
-      const { data: p, error } = await query.maybeSingle()
-
-      if (error || !p) {
-        setNotFound(true)
-        setLoading(false)
-        return
-      }
-
+      if (error || !p) { setNotFound(true); setLoading(false); return }
       setProfile(p)
 
-      // Parallel fetch all data
+      // Fetch all data in parallel — same queries as ProfilePage
       const [{ data: g }, { data: po }, { data: elo }] = await Promise.all([
         supabase.from('games')
           .select('*')
           .eq('user_id', p.id)
-          .eq('is_deleted', false)
+          .or('is_deleted.is.null,is_deleted.eq.false')
           .order('created_at', { ascending: false }),
         supabase.from('posts')
           .select('*, comments(id)')
           .eq('author_id', p.id)
-          .eq('is_deleted', false)
-          .order('inserted_at', { ascending: false })
-          .limit(20),
+          .or('is_deleted.is.null,is_deleted.eq.false')
+          .order('created_at', { ascending: false })
+          .limit(30),
         supabase.from('player_elo')
           .select('sport, elo_rating, wins, losses, matches_played')
           .eq('user_id', p.id)
@@ -187,7 +184,7 @@ export default function PublicProfilePage() {
       setPosts(po || [])
       setEloRatings(elo || [])
     } catch (err) {
-      console.error('Fetch exception:', err)
+      console.error('PublicProfile fetchData error:', err)
       setNotFound(true)
     } finally {
       setLoading(false)
@@ -196,20 +193,21 @@ export default function PublicProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-ink-900 flex items-center justify-center">
-        <Loader2 className="animate-spin text-accent" size={32} />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0a0f' }}>
+        <Loader2 className="animate-spin" size={32} style={{ color: C.accent }} />
       </div>
     )
   }
 
   if (notFound || !profile) {
     return (
-      <div className="min-h-screen bg-ink-900 flex flex-col items-center justify-center gap-4 px-6">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6" style={{ background: '#0a0a0f' }}>
         <div className="text-6xl">🏸</div>
-        <h2 className="font-display text-2xl font-bold text-ink-50 uppercase italic">Player not found</h2>
-        <p className="text-ink-500 text-sm text-center">This player might have left the court.</p>
+        <h2 className="font-display text-2xl font-bold uppercase italic" style={{ color: C.white }}>Player not found</h2>
+        <p className="text-sm text-center" style={{ color: C.dim2 }}>This player might have left the court.</p>
         <button onClick={() => navigate(-1)}
-          className="mt-4 px-6 py-3 glass rounded-2xl text-accent text-xs font-black uppercase tracking-widest border border-accent/20">
+          className="mt-4 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border"
+          style={{ color: C.accent, borderColor: 'rgba(200,255,0,0.2)', background: 'rgba(200,255,0,0.06)' }}>
           Go Back
         </button>
       </div>
@@ -217,112 +215,104 @@ export default function PublicProfilePage() {
   }
 
   const totalWins    = games.filter(g => g.result === 'win').length
-  const totalMatches = games.length
-  const winRate      = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0
   const totalLosses  = games.filter(g => g.result === 'loss').length
-
-  const sportBreakdown = games.reduce((acc, g) => {
-    acc[g.sport] = (acc[g.sport] || 0) + 1
-    return acc
-  }, {})
-
-  const initial   = (profile?.username || 'U').charAt(0).toUpperCase()
-  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
+  const totalMatches = games.length
+  const winRate      = totalMatches > 0 ? Math.round(totalWins / totalMatches * 100) : 0
+  const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
+  const hasAvatar    = profile?.avatar_url && profile?.avatar_type !== 'initials'
   const hasReputation = (profile?.rating_count || 0) > 0
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
-      {/* Sticky header bar */}
-      <div className="sticky top-0 z-10 glass border-b border-white/5 px-4 py-3 flex items-center gap-3">
+    <div className="min-h-screen pb-28" style={{ background: '#0a0a0f' }}>
+      {/* Back bar */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b"
+        style={{ background: 'rgba(10,10,15,0.95)', backdropFilter: 'blur(20px)', borderColor: C.borderDim }}>
         <button onClick={() => navigate(-1)}
-          className="p-2 rounded-xl bg-white/5 border border-white/10 text-ink-400 hover:text-accent transition-colors">
+          className="p-2 rounded-xl border"
+          style={{ background: C.surface, borderColor: C.border, color: C.dim2 }}>
           <ArrowLeft size={18} />
         </button>
-        <span className="font-display font-bold text-sm uppercase italic tracking-tight text-ink-200">
+        <span className="font-display font-bold text-sm uppercase italic" style={{ color: C.dim1 }}>
           @{profile?.username}
         </span>
       </div>
 
       <div className="px-5 pt-8">
-        {/* Avatar + identity */}
+        {/* Avatar + name */}
         <div className="flex flex-col items-center mb-6">
-          <div className="relative mb-4">
-            {hasAvatar ? (
-              <img src={profile.avatar_url} alt="avatar"
-                className="w-24 h-24 rounded-[2rem] object-cover border-2 border-accent" />
-            ) : (
-              <div className="w-24 h-24 bg-gradient-to-br from-accent/30 to-accent/5 rounded-[2rem] flex items-center justify-center font-bold text-4xl border border-accent/20">
-                <span className="text-accent">{initial}</span>
-              </div>
-            )}
-          </div>
-          <h1 className="text-2xl font-display font-bold uppercase italic tracking-tight">
+          {hasAvatar
+            ? <img src={profile.avatar_url} alt="avatar" className="w-24 h-24 rounded-[2rem] object-cover border-2 border-accent mb-4" />
+            : <div className="w-24 h-24 rounded-[2rem] flex items-center justify-center font-bold text-4xl border mb-4"
+                style={{ background: 'rgba(200,255,0,0.08)', borderColor: 'rgba(200,255,0,0.2)', color: C.accent }}>
+                {initial}
+              </div>}
+          <h1 className="text-2xl font-display font-bold uppercase italic tracking-tight" style={{ color: C.white }}>
             {profile?.display_name || `@${profile?.username}`}
           </h1>
-          <p className="text-accent text-[10px] font-black uppercase tracking-widest mt-1">
+          <p className="text-[10px] font-black uppercase tracking-widest mt-1" style={{ color: C.accent }}>
             @{profile?.username}
           </p>
           {(profile?.city || profile?.region) && (
-            <div className="flex items-center gap-1 mt-2 text-ink-500 text-[9px] font-bold">
-              <MapPin size={10} className="text-accent" />
+            <div className="flex items-center gap-1 mt-2 text-[9px] font-bold" style={{ color: C.dim2 }}>
+              <MapPin size={10} style={{ color: C.accent }} />
               {[profile?.city, profile?.region].filter(Boolean).join(', ')}
             </div>
           )}
           {profile?.bio && (
-            <p className="text-ink-400 text-sm mt-3 text-center leading-relaxed max-w-sm">{profile.bio}</p>
+            <p className="text-sm mt-3 text-center leading-relaxed max-w-sm" style={{ color: C.dim1 }}>{profile.bio}</p>
           )}
-          <p className="text-ink-500 text-[9px] uppercase font-black tracking-widest mt-2">
+          <p className="text-[9px] uppercase font-black tracking-widest mt-2" style={{ color: C.dim3 }}>
             Joined {new Date(profile?.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
           </p>
         </div>
 
-        {/* Quick stats — matches ProfilePage layout */}
+        {/* Stats grid — identical layout to ProfilePage */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
-            { val: totalWins,     label: 'Wins'      },
-            { val: `${winRate}%`, label: 'Win Rate'  },
-            { val: totalMatches,  label: 'Matches'   },
+            { val: totalWins,     label: 'Wins'     },
+            { val: `${winRate}%`, label: 'Win Rate' },
+            { val: totalMatches,  label: 'Matches'  },
           ].map(({ val, label }) => (
-            <div key={label} className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
-              <p className="font-display text-2xl font-bold text-accent italic">{val}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">{label}</p>
+            <div key={label} className="p-3.5 rounded-[1.25rem] border text-center glass" style={{ borderColor: C.borderDim }}>
+              <p className="font-display text-2xl font-bold italic" style={{ color: C.accent }}>{val}</p>
+              <p className="text-[9px] font-black uppercase tracking-widest mt-1" style={{ color: C.dim3 }}>{label}</p>
             </div>
           ))}
         </div>
 
-        {/* Win/Loss bar */}
+        {/* Win/loss bar */}
         {totalMatches > 0 && (
-          <div className="mb-5 glass p-4 rounded-[1.5rem] border border-white/10">
-            <div className="flex h-2 rounded-full overflow-hidden gap-0.5 mb-1">
-              <div className="bg-accent rounded-l-full" style={{ width: `${winRate}%` }} />
-              <div className="bg-spark/60 rounded-r-full flex-1" />
+          <div className="mb-5">
+            <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: C.surface }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${winRate}%`, background: C.accent }} />
             </div>
-            <div className="flex justify-between">
-              <span className="text-[8px] text-accent font-black uppercase">{totalWins}W</span>
-              <span className="text-[8px] text-spark font-black uppercase">{totalLosses}L</span>
+            <div className="flex justify-between mt-1">
+              <span className="text-[9px] font-black uppercase" style={{ color: C.accent }}>{totalWins}W</span>
+              <span className="text-[9px] font-black uppercase" style={{ color: C.spark }}>{totalLosses}L</span>
             </div>
           </div>
         )}
 
         {/* Tabs */}
         <div className="mb-4">
-          <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
+          <div className="flex rounded-2xl overflow-hidden border glass" style={{ borderColor: C.border }}>
             {TABS.map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
-                  activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
-                }`}>
+                className="flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5"
+                style={activeTab === tab ? { background: C.accent, color: '#0a0a0f' } : { color: C.dim2 }}>
                 {tab === 'Matches' && <Trophy size={12} />}
                 {tab === 'Posts'   && <MessageSquare size={12} />}
                 {tab === 'Stats'   && <TrendingUp size={12} />}
                 {tab}
                 {tab === 'Matches' && (
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'}`}>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={activeTab === tab ? { background: 'rgba(10,10,15,0.2)', color: '#0a0a0f' } : { background: C.surface, color: C.dim3 }}>
                     {totalMatches}
                   </span>
                 )}
                 {tab === 'Posts' && (
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'}`}>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={activeTab === tab ? { background: 'rgba(10,10,15,0.2)', color: '#0a0a0f' } : { background: C.surface, color: C.dim3 }}>
                     {posts.length}
                   </span>
                 )}
@@ -331,84 +321,54 @@ export default function PublicProfilePage() {
           </div>
         </div>
 
-        {/* Tab content */}
+        {/* Tab content — mirrors ProfilePage exactly */}
         {activeTab === 'Matches' && (
           games.length === 0
-            ? <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">No matches yet</div>
-            : <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-                {games.map(game => <MatchRow key={game.id} game={game} />)}
+            ? <div className="text-center py-14 text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No matches yet</div>
+            : <div className="rounded-[2rem] border overflow-hidden glass" style={{ borderColor: C.border }}>
+                {games.map(g => <MatchRow key={g.id} game={g} />)}
               </div>
         )}
 
         {activeTab === 'Posts' && (
           posts.length === 0
-            ? <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">No posts yet</div>
-            : <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-                {posts.map(post => <PostRow key={post.id} post={post} />)}
+            ? <div className="text-center py-14 text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No posts yet</div>
+            : <div className="rounded-[2rem] border overflow-hidden glass" style={{ borderColor: C.border }}>
+                {posts.map(p => <PostRow key={p.id} post={p} />)}
               </div>
         )}
 
         {activeTab === 'Stats' && (
           <div className="space-y-6">
-            {/* Sport breakdown */}
-            {Object.keys(sportBreakdown).length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Swords size={13} className="text-accent" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-ink-500">Sports Played</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(sportBreakdown).sort((a, b) => b[1] - a[1]).map(([sport, count]) => {
-                    const sportObj = SPORTS.find(s => s.id === sport)
-                    return (
-                      <div key={sport} className="glass px-4 py-2 rounded-2xl border border-white/5 flex items-center gap-2">
-                        <span>{sportObj?.emoji}</span>
-                        <span className="text-[10px] font-black uppercase text-accent">{sportObj?.label || sport}</span>
-                        <span className="text-[9px] text-ink-500 font-bold">{count}x</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ELO ratings — mirrors ProfilePage */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <TrendingUp size={13} className="text-accent" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-ink-500">ELO Ratings</p>
+                <TrendingUp size={13} style={{ color: C.accent }} />
+                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.dim2 }}>ELO Ratings</p>
               </div>
               {eloRatings.length === 0 ? (
-                <div className="glass rounded-2xl border border-white/10 p-5 text-center">
-                  <p className="text-ink-600 text-xs font-black uppercase tracking-widest">No ELO yet</p>
-                  <p className="text-ink-700 text-xs mt-1">Play ranked matches to earn a rating</p>
+                <div className="rounded-2xl border p-5 text-center glass" style={{ borderColor: C.border }}>
+                  <p className="text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No ELO yet</p>
+                  <p className="text-xs mt-1" style={{ color: C.dim4 }}>Play ranked matches to earn a rating</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {eloRatings.map(r => (
-                    <EloRow key={r.sport} sport={r.sport} elo={r.elo_rating} wins={r.wins} losses={r.losses} />
-                  ))}
+                  {eloRatings.map(r => <EloRow key={r.sport} sport={r.sport} elo={r.elo_rating} wins={r.wins} losses={r.losses} />)}
                 </div>
               )}
             </div>
 
-            {/* Reputation — mirrors ProfilePage */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Star size={13} className="text-accent" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-ink-500">
+                <Star size={13} style={{ color: C.accent }} />
+                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: C.dim2 }}>
                   Reputation
-                  {hasReputation && (
-                    <span className="ml-2 text-ink-700">
-                      · {profile.rating_count} rating{profile.rating_count !== 1 ? 's' : ''}
-                    </span>
-                  )}
+                  {hasReputation && <span className="ml-2" style={{ color: C.dim3 }}>· {profile.rating_count} rating{profile.rating_count !== 1 ? 's' : ''}</span>}
                 </p>
               </div>
               {!hasReputation ? (
-                <div className="glass rounded-2xl border border-white/10 p-5 text-center">
-                  <p className="text-ink-600 text-xs font-black uppercase tracking-widest">No ratings yet</p>
-                  <p className="text-ink-700 text-xs mt-1">Play matches to get rated by opponents</p>
+                <div className="rounded-2xl border p-5 text-center glass" style={{ borderColor: C.border }}>
+                  <p className="text-xs font-black uppercase tracking-widest" style={{ color: C.dim3 }}>No ratings yet</p>
+                  <p className="text-xs mt-1" style={{ color: C.dim4 }}>Play matches to get rated by opponents</p>
                 </div>
               ) : (
                 <div className="flex gap-2">
