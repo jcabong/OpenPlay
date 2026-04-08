@@ -164,7 +164,7 @@ export default function PublicProfilePage() {
       const [{ data: g }, { data: po }, { data: elo }] = await Promise.all([
         supabase.from('games')
           .select('*')
-          .eq('user_id', p.id)
+          .or(`user_id.eq.${p.id},tagged_opponent_id.eq.${p.id}`)
           .or('is_deleted.is.null,is_deleted.eq.false')
           .order('created_at', { ascending: false }),
         supabase.from('posts')

@@ -250,11 +250,11 @@ export default function ProfilePage() {
   }
 
   async function loadGames() {
-    // Use OR to handle both NULL and false for is_deleted
+    // Query both sides: games I logged AND games where I was the tagged opponent
     const { data, error } = await supabase
       .from('games')
       .select('*')
-      .eq('user_id', user.id)
+      .or(`user_id.eq.${user.id},tagged_opponent_id.eq.${user.id}`)
       .or('is_deleted.is.null,is_deleted.eq.false')
       .order('created_at', { ascending: false })
     if (error) console.error('loadGames error:', error.message)

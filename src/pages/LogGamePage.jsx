@@ -405,20 +405,7 @@ export default function LogGamePage() {
       }]).select().single()
       if (gErr) throw gErr
 
-      // 2. Opponent mirrored loss
-      if (taggedUser && formData.result === 'win') {
-        const { error: oErr } = await supabase.from('games').insert([{
-          user_id: taggedUser.id, sport: formData.sport, court_name: formData.court_name,
-          city: formData.city, province: formData.province, result: 'loss',
-          score: formData.score, intensity: formData.intensity,
-          opponent_name: profile?.username || 'opponent',
-          tagged_opponent_id: user.id,
-          created_at: new Date().toISOString(),
-        }])
-        if (oErr) console.error('Opponent game insert failed:', oErr.message)
-      }
-
-      // 3. ELO update
+      // 2. ELO update
       if (taggedUser) {
         const winnerId = formData.result === 'win' ? user.id : taggedUser.id
         const loserId  = formData.result === 'win' ? taggedUser.id : user.id
