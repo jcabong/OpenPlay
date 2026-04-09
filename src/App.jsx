@@ -46,13 +46,12 @@ function ProtectedRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/"                  element={<FeedPage />} />
-        <Route path="/log"               element={<LogGamePage />} />
-        <Route path="/leaderboard"       element={<LeaderboardPage />} />
-        <Route path="/profile"           element={<ProfilePage />} />
-        {/* Public profile — same stats as leaderboard */}
-        <Route path="/profile/:userId"   element={<PublicProfilePage />} />
-        <Route path="*"                  element={<Navigate to="/" replace />} />
+        <Route path="/"                element={<FeedPage />} />
+        <Route path="/log"             element={<LogGamePage />} />
+        <Route path="/leaderboard"     element={<LeaderboardPage />} />
+        <Route path="/profile"         element={<ProfilePage />} />
+        <Route path="/profile/:userId" element={<PublicProfilePage />} />
+        <Route path="*"                element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )
