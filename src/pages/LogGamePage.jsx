@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
@@ -8,7 +8,7 @@ export default function LogGamePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
-  const [submitted, setSubmitted] = useState(false) // guard against double submit
+  const submittingRef = useRef(false) // hard lock — prevents double submit on slow networks
 
   const [formData, setFormData] = useState({
     sport: 'badminton',
@@ -49,12 +49,13 @@ export default function LogGamePage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    // Hard guard: prevent any double submission
-    if (loading || submitted || !user) return
+
+    // Hard guard — if already submitting, ignore any extra taps/clicks
+    if (submittingRef.current || loading || !user) return
     if (!formData.court_name.trim()) return
 
+    submittingRef.current = true
     setLoading(true)
-    setSubmitted(true)
 
     try {
       // Step 1: Insert into games table (single source of truth for stats)
@@ -78,7 +79,7 @@ export default function LogGamePage() {
       if (gameError) throw gameError
 
       // Step 2: Insert into posts table (for feed display only)
-      // Link post to game via game_id to prevent duplicates
+      // game_id links post to game — unique constraint prevents duplicate posts
       const opponentDisplay = taggedUser
         ? `@${taggedUser.username}`
         : (searchQuery || 'Open Play')
@@ -90,14 +91,14 @@ export default function LogGamePage() {
         .from('posts')
         .insert([{
           user_id: user.id,
-          game_id: gameData.id, // links post to game, unique constraint prevents dupe
+          game_id: gameData.id,
           content: `${resultEmoji} Just logged a ${formData.sport} match at ${formData.court_name}. Result: ${formData.result.toUpperCase()}${scoreText}. Vs: ${opponentDisplay}`,
           location_name: formData.court_name,
           sport: formData.sport,
           inserted_at: new Date().toISOString()
         }])
 
-      // Post failure is non-fatal (stats still recorded in games table)
+      // Post failure is non-fatal — stats are already safely in games table
       if (postError) {
         console.warn('Feed post failed (non-fatal):', postError.message)
       }
@@ -106,8 +107,8 @@ export default function LogGamePage() {
     } catch (err) {
       console.error('Error saving match:', err)
       alert('Error saving match: ' + err.message)
-      // Reset submitted guard so user can try again after a real error
-      setSubmitted(false)
+      // Release the lock so the user can try again after a real error
+      submittingRef.current = false
       setLoading(false)
     }
   }
@@ -233,7 +234,7 @@ export default function LogGamePage() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={loading || submitted}
+          disabled={loading}
           className="w-full bg-accent text-ink-900 font-display font-black py-6 rounded-[2.5rem] glow-accent uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 active:scale-[0.97] transition-all disabled:opacity-50 disabled:grayscale mt-4"
         >
           {loading
