@@ -17,8 +17,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session) navigate('/')
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) navigate('/')
+      } catch (err) {
+        console.error('Session check failed:', err)
+        // Silently fail — user stays on login page
+      }
     }
     checkSession()
   }, [navigate])
