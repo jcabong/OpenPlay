@@ -25,11 +25,13 @@ export default function ProfilePage() {
         .from('games')
         .select('id, sport, result, score, court_name, created_at')
         .eq('user_id', user.id)
+        .eq('is_deleted', false)  // ← ADDED: filter out deleted games
         .order('created_at', { ascending: false }),
       supabase
         .from('posts')
         .select('id, content, sport, location_name, inserted_at')
         .eq('user_id', user.id)
+        .eq('is_deleted', false)  // ← ADDED: filter out deleted posts
         .order('inserted_at', { ascending: false })
         .limit(20)
     ])
