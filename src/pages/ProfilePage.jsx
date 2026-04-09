@@ -1,3 +1,4 @@
+cat > src/pages/ProfilePage.jsx << 'EOF'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -19,7 +20,6 @@ export default function ProfilePage() {
   async function fetchData() {
     setLoading(true)
 
-    // Stats come ONLY from games table — single source of truth, same as leaderboard
     const [{ data: g }, { data: po }] = await Promise.all([
       supabase
         .from('games')
@@ -39,7 +39,6 @@ export default function ProfilePage() {
     setLoading(false)
   }
 
-  // Same filter logic as leaderboard
   const filteredGames = activeSport === 'all'
     ? games
     : games.filter(g => g.sport === activeSport)
@@ -49,7 +48,6 @@ export default function ProfilePage() {
   const total  = filteredGames.length
   const winRate = total > 0 ? Math.round((wins / total) * 100) : 0
 
-  // Per-sport breakdown — mirrors leaderboard ranking exactly
   const sportBreakdown = SPORTS
     .map(sport => ({
       sport,
@@ -63,8 +61,6 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-24 px-6 pt-12">
-
-      {/* Avatar + Username */}
       <div className="flex flex-col items-center mb-8">
         <div className="w-20 h-20 bg-accent rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-3xl mb-4 glow-accent">
           {displayName.charAt(0).toUpperCase()}
@@ -75,7 +71,6 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {/* Sport Filter — same tabs as leaderboard */}
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar mb-6">
         <button
           onClick={() => setActiveSport('all')}
@@ -102,7 +97,6 @@ export default function ProfilePage() {
         ))}
       </div>
 
-      {/* Stats — same source as leaderboard */}
       <div className="glass p-6 rounded-[2.5rem] border border-white/10 mb-6 bg-gradient-to-br from-white/5 to-transparent">
         <div className="flex justify-between items-center text-[10px] font-black uppercase text-ink-600 mb-4 border-b border-white/5 pb-2">
           <span className="flex items-center gap-2">
@@ -147,7 +141,6 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Per-Sport Breakdown — same data the leaderboard ranks by */}
       {sportBreakdown.length > 0 && (
         <div className="mb-8">
           <h2 className="text-[10px] font-black uppercase text-ink-600 mb-3 ml-2 flex items-center gap-2">
@@ -173,7 +166,6 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Recent Activity (feed entries, NOT stats source) */}
       <h2 className="text-[10px] font-black uppercase text-ink-600 mb-4 ml-2 flex items-center gap-2">
         <Clock size={12} /> Recent Highlights
       </h2>
@@ -207,3 +199,4 @@ export default function ProfilePage() {
     </div>
   )
 }
+EOF
