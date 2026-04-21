@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare } from 'lucide-react'
+import { MapPin, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare } from 'lucide-react'
 
 const DEFAULT_AVATARS = [
   { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
@@ -14,6 +14,19 @@ const DEFAULT_AVATARS = [
   { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
   { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
 ]
+
+const ELO_TIER_COLOR = {
+  Elite:        '#f59e0b',
+  Advanced:     '#c8ff00',
+  Intermediate: '#60a5fa',
+  Casual:       '#a78bfa',
+  Beginner:     'rgba(255,255,255,0.45)',
+  Bronze:       '#f59e0b',
+  Silver:       '#94a3b8',
+  Gold:         '#facc15',
+  Platinum:     '#c084fc',
+  Diamond:      '#60a5fa',
+}
 
 function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
   const [selected, setSelected]         = useState(currentUrl || null)
@@ -148,6 +161,8 @@ function MatchRow({ game }) {
 function PostRow({ post }) {
   const sport = SPORTS.find(s => s.id === post.sport)
   const hasMedia = post.media_urls?.length > 0
+  // use inserted_at (posts table) with fallback to created_at
+  const dateVal = post.inserted_at || post.created_at
   return (
     <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
       <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 bg-white/5">
@@ -179,7 +194,7 @@ function PostRow({ post }) {
           {post.comments?.length || 0}
         </div>
         <p className="text-[9px] text-ink-700 mt-1">
-          {new Date(post.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+          {dateVal ? new Date(dateVal).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '—'}
         </p>
       </div>
     </div>
@@ -201,12 +216,13 @@ export default function ProfilePage() {
     bio: '',
     city: '',
     region: '',
+    province: '',
   })
-  const [saving, setSaving]             = useState(false)
+  const [saving, setSaving]                     = useState(false)
   const [showAvatarPicker, setShowAvatarPicker] = useState(false)
-  const [avatarUrl, setAvatarUrl]       = useState(profile?.avatar_url || null)
-  const [avatarType, setAvatarType]     = useState(profile?.avatar_type || 'initials')
-  const [saveMsg, setSaveMsg]           = useState('')
+  const [avatarUrl, setAvatarUrl]               = useState(profile?.avatar_url || null)
+  const [avatarType, setAvatarType]             = useState(profile?.avatar_type || 'initials')
+  const [saveMsg, setSaveMsg]                   = useState('')
 
   useEffect(() => {
     if (!user) { navigate('/login'); return }
@@ -217,6 +233,7 @@ export default function ProfilePage() {
         bio:          profile.bio          || '',
         city:         profile.city         || '',
         region:       profile.region       || '',
+        province:     profile.province     || '',
       })
       setAvatarUrl(profile.avatar_url   || null)
       setAvatarType(profile.avatar_type || 'initials')
@@ -245,7 +262,7 @@ export default function ProfilePage() {
       .select('*, comments(id)')
       .eq('author_id', user.id)
       .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
+      .order('inserted_at', { ascending: false })
     setPosts(data || [])
   }
 
@@ -270,6 +287,7 @@ export default function ProfilePage() {
         bio:          formData.bio,
         city:         formData.city,
         region:       formData.region,
+        province:     formData.province,
       })
       .eq('id', user.id)
 
@@ -286,9 +304,11 @@ export default function ProfilePage() {
   }
 
   const totalWins    = games.filter(g => g.result === 'win').length
+  const totalLosses  = games.filter(g => g.result === 'loss').length
   const totalMatches = games.length
   const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
   const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
+  const eloColor     = ELO_TIER_COLOR[profile?.skill_tier] || 'rgba(255,255,255,0.45)'
 
   if (loading) {
     return (
@@ -333,10 +353,10 @@ export default function ProfilePage() {
               </button>
             </div>
             <p className="text-accent text-sm font-bold mt-0.5">@{profile?.username}</p>
-            {(profile?.city || profile?.region) && (
+            {(profile?.city || profile?.region || profile?.province) && (
               <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-1.5">
                 <MapPin size={11} className="text-accent" />
-                {[profile?.city, profile?.region].filter(Boolean).join(', ')}
+                {[profile?.city, profile?.province || profile?.region].filter(Boolean).join(', ')}
               </div>
             )}
             {profile?.bio && (
@@ -373,9 +393,16 @@ export default function ProfilePage() {
             />
             <input
               type="text"
+              value={formData.province}
+              onChange={e => setFormData({ ...formData, province: e.target.value })}
+              placeholder="Province"
+              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+            />
+            <input
+              type="text"
               value={formData.region}
               onChange={e => setFormData({ ...formData, region: e.target.value })}
-              placeholder="Region/Province"
+              placeholder="Region (optional)"
               className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
             />
             {saveMsg !== '' && (
@@ -400,19 +427,27 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 px-4 mb-5">
-        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
-          <p className="font-display text-2xl font-bold text-accent italic">{totalWins}</p>
-          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Wins</p>
+      {/* Stats grid — 4 cards including ELO */}
+      <div className="grid grid-cols-4 gap-2 px-4 mb-5">
+        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-xl font-bold text-accent italic">{totalWins}</p>
+          <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Wins</p>
         </div>
-        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
-          <p className="font-display text-2xl font-bold text-accent italic">{winRate}%</p>
-          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Win Rate</p>
+        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-xl font-bold text-spark italic">{totalLosses}</p>
+          <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Losses</p>
         </div>
-        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
-          <p className="font-display text-2xl font-bold text-accent italic">{totalMatches}</p>
-          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Matches</p>
+        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-xl font-bold text-accent italic">{winRate}%</p>
+          <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Win Rate</p>
+        </div>
+        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-xl font-bold italic" style={{ color: eloColor }}>
+            {profile?.elo_rating ?? 1000}
+          </p>
+          <p className="text-[8px] font-black uppercase tracking-widest mt-1" style={{ color: eloColor, opacity: 0.8 }}>
+            {profile?.skill_tier ?? 'Casual'}
+          </p>
         </div>
       </div>
 
