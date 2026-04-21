@@ -2,18 +2,10 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase, SPORTS } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare } from 'lucide-react'
+import { MapPin, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare, Star } from 'lucide-react'
 
-const DEFAULT_AVATARS = [
-  { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
-  { id: 'avatar-2', src: '/avatars/avatar-2.jpeg', label: 'Badminton F' },
-  { id: 'avatar-3', src: '/avatars/avatar-3.jpeg', label: 'Tennis M'    },
-  { id: 'avatar-4', src: '/avatars/avatar-4.jpeg', label: 'Tennis F'    },
-  { id: 'avatar-5', src: '/avatars/avatar-5.jpeg', label: 'Pickleball M'},
-  { id: 'avatar-6', src: '/avatars/avatar-6.jpeg', label: 'Pickleball F'},
-  { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
-  { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
-]
+// ... (AvatarPicker, MatchRow, PostRow components stay exactly the same)
+// [Keeping your existing AvatarPicker, MatchRow, and PostRow code here]
 
 const ELO_TIER_COLOR = {
   Elite:        '#f59e0b',
@@ -161,7 +153,6 @@ function MatchRow({ game }) {
 function PostRow({ post }) {
   const sport = SPORTS.find(s => s.id === post.sport)
   const hasMedia = post.media_urls?.length > 0
-  // use inserted_at (posts table) with fallback to created_at
   const dateVal = post.inserted_at || post.created_at
   return (
     <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
@@ -202,11 +193,22 @@ function PostRow({ post }) {
 }
 
 const TABS = ['Matches', 'Posts']
+const DEFAULT_AVATARS = [
+  { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
+  { id: 'avatar-2', src: '/avatars/avatar-2.jpeg', label: 'Badminton F' },
+  { id: 'avatar-3', src: '/avatars/avatar-3.jpeg', label: 'Tennis M'    },
+  { id: 'avatar-4', src: '/avatars/avatar-4.jpeg', label: 'Tennis F'    },
+  { id: 'avatar-5', src: '/avatars/avatar-5.jpeg', label: 'Pickleball M'},
+  { id: 'avatar-6', src: '/avatars/avatar-6.jpeg', label: 'Pickleball F'},
+  { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
+  { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
+]
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth()
   const navigate  = useNavigate()
   const [activeTab, setActiveTab] = useState('Matches')
+  const [activeSport, setActiveSport] = useState('all') // Added Sport Filter State
   const [games, setGames]         = useState([])
   const [posts, setPosts]         = useState([])
   const [loading, setLoading]     = useState(true)
@@ -303,12 +305,24 @@ export default function ProfilePage() {
     setSaving(false)
   }
 
-  const totalWins    = games.filter(g => g.result === 'win').length
-  const totalLosses  = games.filter(g => g.result === 'loss').length
-  const totalMatches = games.length
+  // --- FILTERED STATS LOGIC ---
+  const filteredGames = activeSport === 'all' ? games : games.filter(g => g.sport === activeSport)
+  const totalWins    = filteredGames.filter(g => g.result === 'win').length
+  const totalLosses  = filteredGames.filter(g => g.result === 'loss').length
+  const totalMatches = filteredGames.length
   const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
+
+  // --- DYNAMIC ELO LOGIC ---
+  const currentElo = activeSport === 'all' 
+    ? (profile?.elo_rating || 1200) 
+    : (profile?.[`${activeSport}_elo`] || 1200)
+
+  const currentTier = activeSport === 'all'
+    ? (profile?.skill_tier || 'Casual')
+    : (profile?.[`${activeSport}_tier`] || 'Casual')
+
   const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
-  const eloColor     = ELO_TIER_COLOR[profile?.skill_tier] || 'rgba(255,255,255,0.45)'
+  const eloColor     = ELO_TIER_COLOR[currentTier.split(' ')[0]] || 'rgba(255,255,255,0.45)'
 
   if (loading) {
     return (
@@ -328,7 +342,7 @@ export default function ProfilePage() {
       <div className="px-5 pb-4">
         <div className="relative w-20 h-20 mb-3">
           {avatarUrl && avatarType !== 'initials' ? (
-            <img src={avatarUrl} alt="avatar" className="w-20 h-20 rounded-[1.5rem] object-cover" />
+            <img src={avatarUrl} alt="avatar" className="w-20 h-20 rounded-[1.5rem] object-cover border-2 border-white/5" />
           ) : (
             <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl">
               {initial}
@@ -336,7 +350,7 @@ export default function ProfilePage() {
           )}
           <button
             onClick={() => setShowAvatarPicker(true)}
-            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center border-2 border-ink-900"
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center border-2 border-ink-900 shadow-lg transition-transform active:scale-90"
             style={{ background: '#c8ff00' }}>
             <Camera size={13} className="text-ink-900" />
           </button>
@@ -348,19 +362,19 @@ export default function ProfilePage() {
               <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter text-white">
                 {profile?.display_name || `@${profile?.username}`}
               </h1>
-              <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-white/10">
+              <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
                 <Edit2 size={14} className="text-ink-500" />
               </button>
             </div>
             <p className="text-accent text-sm font-bold mt-0.5">@{profile?.username}</p>
             {(profile?.city || profile?.region || profile?.province) && (
-              <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-1.5">
+              <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-1.5 uppercase tracking-wide">
                 <MapPin size={11} className="text-accent" />
                 {[profile?.city, profile?.province || profile?.region].filter(Boolean).join(', ')}
               </div>
             )}
             {profile?.bio && (
-              <p className="text-ink-300 text-sm mt-3 leading-relaxed max-w-sm">{profile?.bio}</p>
+              <p className="text-ink-300 text-sm mt-3 leading-relaxed max-w-sm font-medium">{profile?.bio}</p>
             )}
             {saveMsg !== '' && (
               <p className={`text-xs font-bold mt-2 ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
@@ -369,57 +383,54 @@ export default function ProfilePage() {
             )}
           </>
         ) : (
-          <div className="space-y-3 mt-2">
+          <div className="space-y-3 mt-2 animate-fade-in">
             <input
               type="text"
               value={formData.display_name}
               onChange={e => setFormData({ ...formData, display_name: e.target.value })}
               placeholder="Display name"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white text-sm"
             />
             <textarea
               value={formData.bio}
               onChange={e => setFormData({ ...formData, bio: e.target.value })}
               placeholder="Bio"
               rows={3}
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white resize-none"
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white resize-none text-sm"
             />
-            <input
-              type="text"
-              value={formData.city}
-              onChange={e => setFormData({ ...formData, city: e.target.value })}
-              placeholder="City"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
-            />
-            <input
-              type="text"
-              value={formData.province}
-              onChange={e => setFormData({ ...formData, province: e.target.value })}
-              placeholder="Province"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
-            />
+            <div className="grid grid-cols-2 gap-2">
+                <input
+                    type="text"
+                    value={formData.city}
+                    onChange={e => setFormData({ ...formData, city: e.target.value })}
+                    placeholder="City"
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white text-sm"
+                />
+                <input
+                    type="text"
+                    value={formData.province}
+                    onChange={e => setFormData({ ...formData, province: e.target.value })}
+                    placeholder="Province"
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white text-sm"
+                />
+            </div>
             <input
               type="text"
               value={formData.region}
               onChange={e => setFormData({ ...formData, region: e.target.value })}
               placeholder="Region (optional)"
-              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white text-sm"
             />
-            {saveMsg !== '' && (
-              <p className={`text-xs font-bold ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
-                {saveMsg}
-              </p>
-            )}
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-1">
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="flex-1 py-2 rounded-xl bg-accent text-ink-900 font-bold text-sm flex items-center justify-center gap-2"
+                className="flex-1 py-3 rounded-xl bg-accent text-ink-900 font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-[0_0_15px_-5px_#C8FF00]"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                Save
+                Save Profile
               </button>
-              <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl bg-white/5 text-ink-400 font-bold text-sm">
+              <button onClick={() => setEditing(false)} className="px-5 py-3 rounded-xl bg-white/5 text-ink-400 font-bold text-xs uppercase">
                 Cancel
               </button>
             </div>
@@ -427,39 +438,54 @@ export default function ProfilePage() {
         )}
       </div>
 
-      {/* Stats grid — 4 cards including ELO */}
-      <div className="grid grid-cols-4 gap-2 px-4 mb-5">
-        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+      {/* Sport Selector Filter (Added to match Public Profile) */}
+      <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar px-4">
+        {[{ id: 'all', label: 'All', emoji: '🌟' }, ...SPORTS].map(s => (
+          <button
+            key={s.id}
+            onClick={() => setActiveSport(s.id)}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
+              activeSport === s.id ? 'bg-accent text-ink-900 border-accent shadow-[0_0_15px_-5px_#C8FF00]' : 'bg-white/5 border-white/10 text-ink-500 hover:text-white'
+            }`}
+          >
+            {s.emoji} {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats grid — 4 cards including Dynamic ELO */}
+      <div className="grid grid-cols-4 gap-2 px-4 mb-6">
+        <div className="glass p-3 rounded-2xl border border-white/5 text-center">
           <p className="font-display text-xl font-bold text-accent italic">{totalWins}</p>
           <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Wins</p>
         </div>
-        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
+        <div className="glass p-3 rounded-2xl border border-white/5 text-center">
           <p className="font-display text-xl font-bold text-spark italic">{totalLosses}</p>
           <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Losses</p>
         </div>
-        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
-          <p className="font-display text-xl font-bold text-accent italic">{winRate}%</p>
+        <div className="glass p-3 rounded-2xl border border-white/5 text-center">
+          <p className="font-display text-xl font-bold text-white italic">{winRate}%</p>
           <p className="text-[8px] font-black uppercase tracking-widest text-ink-600 mt-1">Win Rate</p>
         </div>
-        <div className="glass p-3 rounded-[1.25rem] border border-white/5 text-center">
-          <p className="font-display text-xl font-bold italic" style={{ color: eloColor }}>
-            {profile?.elo_rating ?? 1000}
+        <div className="glass p-3 rounded-2xl border border-accent/20 bg-accent/[0.02] text-center min-w-0">
+          <p className="font-display text-xl font-bold italic truncate" style={{ color: eloColor }}>
+            {currentElo}
           </p>
-          <p className="text-[8px] font-black uppercase tracking-widest mt-1" style={{ color: eloColor, opacity: 0.8 }}>
-            {profile?.skill_tier ?? 'Casual'}
+          <p className="text-[8px] font-black uppercase tracking-widest mt-1 truncate" style={{ color: eloColor, opacity: 0.8 }}>
+            {currentTier}
           </p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="px-4 mb-4">
-        <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
+        <div className="flex rounded-2xl overflow-hidden border border-white/10 glass shadow-sm">
           {TABS.map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
-                activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
+              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === tab ? 'bg-accent text-ink-900 shadow-inner' : 'text-ink-400 hover:text-white'
               }`}
             >
               {tab === 'Matches' ? <Trophy size={12} /> : <MessageSquare size={12} />}
@@ -467,7 +493,7 @@ export default function ProfilePage() {
               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                 activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'
               }`}>
-                {tab === 'Matches' ? totalMatches : posts.length}
+                {tab === 'Matches' ? filteredGames.length : posts.length}
               </span>
             </button>
           ))}
@@ -475,26 +501,26 @@ export default function ProfilePage() {
       </div>
 
       {/* Tab content */}
-      <div className="px-4">
+      <div className="px-4 animate-slide-up">
         {activeTab === 'Matches' && (
-          games.length === 0 ? (
-            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
-              No matches yet
+          filteredGames.length === 0 ? (
+            <div className="text-center py-20 text-ink-700 text-xs font-black uppercase tracking-widest">
+              No matches logged
             </div>
           ) : (
             <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
-              {games.map(game => <MatchRow key={game.id} game={game} />)}
+              {filteredGames.map(game => <MatchRow key={game.id} game={game} />)}
             </div>
           )
         )}
 
         {activeTab === 'Posts' && (
           posts.length === 0 ? (
-            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
-              No posts yet
+            <div className="text-center py-20 text-ink-700 text-xs font-black uppercase tracking-widest">
+              No posts shared
             </div>
           ) : (
-            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+            <div className="space-y-3">
               {posts.map(post => <PostRow key={post.id} post={post} />)}
             </div>
           )
