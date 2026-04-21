@@ -95,41 +95,41 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       })
       await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
       const comps = place.addressComponents || []
-
+      
       let cityVal = ''
       let provinceVal = ''
-
-      const locality = comps.find(c =>
-        c.types.includes('locality') ||
+      
+      const locality = comps.find(c => 
+        c.types.includes('locality') || 
         c.types.includes('administrative_area_level_3') ||
         c.types.includes('sublocality_level_1') ||
         c.types.includes('sublocality')
       )
-
-      const provinceComp = comps.find(c =>
+      
+      const provinceComp = comps.find(c => 
         c.types.includes('administrative_area_level_2') ||
         c.types.includes('administrative_area_level_1')
       )
-
+      
       cityVal = locality?.longText || locality?.long_name || ''
       provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
-
+      
       if (!cityVal && s.secondary) {
         const secondaryParts = s.secondary.split(',').map(p => p.trim())
         cityVal = secondaryParts[0] || ''
         provinceVal = secondaryParts[1] || provinceVal
       }
-
+      
       if (!cityVal && place.formattedAddress) {
         const parts = place.formattedAddress.split(',').map(p => p.trim())
         if (parts.length >= 2) {
           cityVal = parts[parts.length - 3] || parts[parts.length - 2] || ''
         }
       }
-
+      
       onCityChange(cityVal)
       onProvinceChange(provinceVal)
-
+      
     } catch (err) {
       console.error('Place details error:', err)
       const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
@@ -161,9 +161,9 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           )
           const data = await res.json()
           if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
-
+          
           let name = '', cityVal = '', provinceVal = ''
-
+          
           for (const result of data.results) {
             const c = result.address_components
             const premise  = c.find(x => x.types.includes('premise'))
@@ -172,21 +172,21 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
             const route    = c.find(x => x.types.includes('route'))
             const locality = c.find(x => x.types.includes('locality'))
             const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
-
+            
             if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
             if (!cityVal) cityVal = locality?.long_name || ''
             if (!provinceVal) provinceVal = province?.long_name || ''
-
+            
             if (name && cityVal) break
           }
-
+          
           if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
-
+          
           setQuery(name)
           onCourtChange(name)
           onCityChange(cityVal)
           onProvinceChange(provinceVal)
-
+          
         } catch {
           alert('Could not get location')
         } finally {
@@ -279,6 +279,8 @@ export default function LogGamePage() {
   const [mediaFiles, setMediaFiles]   = useState([])
   const [mediaPreviews, setMediaPreviews] = useState([])
   const fileInputRef = useRef(null)
+  // Fix: submit guard prevents duplicate inserts on double-tap
+  const isSubmittingRef = useRef(false)
 
   const [formData, setFormData] = useState({
     sport:      'badminton',
@@ -296,19 +298,17 @@ export default function LogGamePage() {
   const [taggedUser, setTaggedUser]     = useState(null)
   const [isSearching, setIsSearching]   = useState(false)
 
-  // ── FIX: was querying from('profiles') which is wrong table
-  // ── Now correctly queries from('users') with correct column names
   async function searchOpponents(query) {
     if (!query || query.length < 2) return
     setIsSearching(true)
-
+    
     const { data, error } = await supabase
-      .from('users')                                          // ← FIXED: was 'profiles'
-      .select('id, username, display_name, city, province')  // ← FIXED: was 'full_name'
+      .from('users')
+      .select('id, username, display_name, city, province')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
       .limit(5)
-
+    
     if (error) {
       console.error('Search error:', error)
     } else {
@@ -359,10 +359,13 @@ export default function LogGamePage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (loading || !user) return
+    // Fix: guard against double-tap / double-submit
+    if (loading || !user || isSubmittingRef.current) return
+    isSubmittingRef.current = true
 
     if (formData.result === 'win' && !taggedUser) {
       alert('⚠️ To record a WIN, you must tag your opponent. This keeps the rankings fair.')
+      isSubmittingRef.current = false
       return
     }
 
@@ -392,38 +395,32 @@ export default function LogGamePage() {
         console.error('❌ Game insert error:', gameError)
         throw gameError
       }
-      console.log('✅ Your game recorded:', { id: game.id, result: game.result, opponent: game.opponent_name })
 
       // ========== 2. INSERT OPPONENT'S GAME ==========
       let opponentGame = null
       if (taggedUser && formData.result === 'win') {
-        console.log('🔄 Recording opponent loss for:', taggedUser.username)
-
-        const opponentGameData = {
-          user_id:            taggedUser.id,
-          sport:              formData.sport,
-          court_name:         formData.court_name,
-          city:               formData.city,
-          province:           formData.province,
-          result:             'loss',
-          score:              formData.score,
-          intensity:          formData.intensity,
-          opponent_name:      profile?.username || 'opponent',
-          tagged_opponent_id: user.id,
-          created_at:         new Date().toISOString(),
-        }
-
         const { data: oppData, error: opponentError } = await supabase
           .from('games')
-          .insert([opponentGameData])
+          .insert([{
+            user_id:            taggedUser.id,
+            sport:              formData.sport,
+            court_name:         formData.court_name,
+            city:               formData.city,
+            province:           formData.province,
+            result:             'loss',
+            score:              formData.score,
+            intensity:          formData.intensity,
+            opponent_name:      profile?.username || 'opponent',
+            tagged_opponent_id: user.id,
+            created_at:         new Date().toISOString(),
+          }])
           .select()
-
+        
         if (opponentError) {
           console.error('❌ Opponent sync FAILED:', opponentError)
           alert('⚠️ Match recorded but opponent stats failed to update.')
         } else {
           opponentGame = oppData[0]
-          console.log('✅ Opponent loss recorded:', { id: opponentGame.id })
         }
       }
 
@@ -448,8 +445,6 @@ export default function LogGamePage() {
 
       if (postError) {
         console.warn('⚠️ Feed post failed:', postError.message)
-      } else {
-        console.log('✅ Post created:', newPost.id)
       }
 
       // ========== 4. SEND NOTIFICATIONS ==========
@@ -480,12 +475,13 @@ export default function LogGamePage() {
         : (taggedUser && formData.result === 'win' ? '⚠️ Opponent stats failed to update' : '')
       alert(`✅ Match recorded successfully!${syncStatus ? '\n\n' + syncStatus : ''}`)
       navigate('/')
-
+      
     } catch (err) {
       console.error('❌ Submit error:', err)
       alert('Error saving match: ' + err.message)
     } finally {
       setLoading(false)
+      isSubmittingRef.current = false
     }
   }
 
@@ -502,6 +498,7 @@ export default function LogGamePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 space-y-5">
+        {/* Sport selector */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {SPORTS.map(s => (
             <button
@@ -520,6 +517,7 @@ export default function LogGamePage() {
           ))}
         </div>
 
+        {/* Location */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
@@ -534,6 +532,7 @@ export default function LogGamePage() {
           />
         </div>
 
+        {/* Match Details */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
@@ -546,7 +545,7 @@ export default function LogGamePage() {
                 style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
                 placeholder="Tag opponent (username)"
                 value={taggedUser ? `@${taggedUser.username}` : searchQuery}
-                onChange={e => {
+                onChange={e => { 
                   setTaggedUser(null)
                   setSearchQuery(e.target.value)
                   setSearchResults([])
@@ -554,7 +553,7 @@ export default function LogGamePage() {
               />
               {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
               {taggedUser && (
-                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]) }} className="shrink-0 text-red-400">
+                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]); }} className="shrink-0 text-red-400">
                   <X size={15} />
                 </button>
               )}
@@ -575,7 +574,6 @@ export default function LogGamePage() {
                   >
                     <div>
                       <span className="font-bold text-white">@{u.username}</span>
-                      {/* FIXED: was u.full_name, now u.display_name */}
                       {u.display_name && (
                         <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
                           ({u.display_name})
@@ -616,6 +614,7 @@ export default function LogGamePage() {
           </div>
         </div>
 
+        {/* Result */}
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
           <div className="grid grid-cols-2 gap-3">
@@ -647,6 +646,7 @@ export default function LogGamePage() {
           )}
         </div>
 
+        {/* Intensity */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
@@ -676,6 +676,7 @@ export default function LogGamePage() {
           </div>
         </div>
 
+        {/* Media */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
           {mediaPreviews.length > 0 && (
@@ -710,6 +711,7 @@ export default function LogGamePage() {
           <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
         </div>
 
+        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
