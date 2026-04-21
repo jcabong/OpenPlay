@@ -61,8 +61,11 @@ function ProtectedRoutes() {
         <Route path="/ranks"               element={<LeaderboardPage />} />
         <Route path="/events"              element={<EventsPage />} />
         <Route path="/profile"             element={<ProfilePage />} />
-        <Route path="/profile/:userId"     element={<PublicProfilePage />} />
-        <Route path="/user/:username"      element={<PublicProfilePage />} />
+        
+        {/* FIXED: Unified parameters to handle both /profile/UUID and /user/username */}
+        <Route path="/profile/:idOrUsername" element={<PublicProfilePage />} />
+        <Route path="/user/:idOrUsername"    element={<PublicProfilePage />} />
+        
         <Route path="/admin"               element={<AdminPage />} />
         <Route path="*"                    element={<Navigate to="/" replace />} />
       </Routes>
