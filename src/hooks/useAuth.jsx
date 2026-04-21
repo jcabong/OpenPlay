@@ -8,18 +8,8 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const isMountedRef          = useRef(true)
-  const fetchingRef           = useRef(false)
-  const lastUserIdRef         = useRef(null)
 
-  // ─── Fetch profile ─────────────────────────────────────────
   async function fetchProfile(userId) {
-    // Skip duplicate fetch for the same user while one is already in flight
-    if (fetchingRef.current && lastUserIdRef.current === userId) {
-      return
-    }
-    fetchingRef.current = true
-    lastUserIdRef.current = userId
-
     try {
       const { data, error } = await supabase
         .from('users')
@@ -39,9 +29,6 @@ export function AuthProvider({ children }) {
       console.error('fetchProfile exception:', err)
       if (isMountedRef.current) setProfile(null)
     } finally {
-      fetchingRef.current = false
-      // Fix: only set loading false AFTER profile is fetched, preventing
-      // the flash where loading=false but profile=null causes username modal
       if (isMountedRef.current) setLoading(false)
     }
   }
@@ -49,70 +36,71 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     isMountedRef.current = true
 
-    // Safety valve — if something hangs for 8s, unblock the UI
-    const safetyTimeout = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.warn('Auth safety timeout fired')
+    // ── Step 1: getSession on mount ────────────────────────────────────────
+    // This is critical for the post-OAuth redirect case.
+    // onAuthStateChange alone can be too slow after exchangeCodeForSession.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMountedRef.current) return
+      if (session?.user) {
+        setUser(session.user)
+        fetchProfile(session.user.id)
+      } else {
         setLoading(false)
       }
-    }, 8000)
+    })
 
-    // onAuthStateChange is the single source of truth.
-    // INITIAL_SESSION fires immediately on mount with the cached session.
+    // ── Step 2: onAuthStateChange for future changes ───────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMountedRef.current) return
+
+      console.log('Auth event:', event)
 
       if (event === 'SIGNED_OUT') {
         setUser(null)
         setProfile(null)
         setLoading(false)
-        fetchingRef.current = false
-        lastUserIdRef.current = null
-        clearTimeout(safetyTimeout)
         return
       }
 
+      // TOKEN_REFRESHED, SIGNED_IN, USER_UPDATED etc.
       const currentUser = session?.user ?? null
-      setUser(currentUser)
-
       if (currentUser) {
-        // Don't set loading=false until profile is loaded to prevent flash
-        await fetchProfile(currentUser.id)
+        setUser(currentUser)
+        // Only re-fetch profile if user changed
+        // (avoids redundant fetch if getSession already handled it)
+        fetchProfile(currentUser.id)
       } else {
+        setUser(null)
         setProfile(null)
         setLoading(false)
       }
-
-      clearTimeout(safetyTimeout)
     })
 
-    // Refetch on app foreground (handles iOS PWA kill/resume)
+    // ── Step 3: Visibility handler ─────────────────────────────────────────
     const handleVisibility = async () => {
-      if (document.visibilityState === 'visible') {
-        try {
-          const { data: { session } } = await supabase.auth.getSession()
-          const currentUser = session?.user ?? null
-          if (isMountedRef.current) {
-            setUser(currentUser)
-            if (currentUser) {
-              fetchingRef.current = false
-              await fetchProfile(currentUser.id)
-            } else {
-              setProfile(null)
-              setLoading(false)
-            }
+      if (document.visibilityState !== 'visible') return
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const currentUser = session?.user ?? null
+        if (isMountedRef.current) {
+          setUser(currentUser)
+          if (currentUser) {
+            await fetchProfile(currentUser.id)
+          } else {
+            setProfile(null)
+            setLoading(false)
           }
-        } catch (err) {
-          console.error('Visibility recheck error:', err)
-          if (isMountedRef.current) setLoading(false)
         }
+      } catch (err) {
+        console.error('Visibility recheck error:', err)
+        if (isMountedRef.current) setLoading(false)
       }
     }
+
     document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       isMountedRef.current = false
-      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
       document.removeEventListener('visibilitychange', handleVisibility)
     }
@@ -121,10 +109,7 @@ export function AuthProvider({ children }) {
   async function signInWithGoogle() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        // PKCE is set in supabase.js client config
-      },
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
   }
 
@@ -134,11 +119,7 @@ export function AuthProvider({ children }) {
   }
 
   const refreshProfile = () => {
-    if (user) {
-      fetchingRef.current = false
-      lastUserIdRef.current = null
-      fetchProfile(user.id)
-    }
+    if (user) fetchProfile(user.id)
   }
 
   return (

@@ -4,13 +4,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error(
-    '🚨 Missing Supabase environment variables.\n' +
-    'Create a .env.local file with:\n' +
-    '  VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co\n' +
-    '  VITE_SUPABASE_ANON_KEY=YOUR_ANON_KEY_HERE\n\n' +
-    'Get these from: https://app.supabase.com → Project Settings → API'
-  )
+  console.error('Missing Supabase env vars. Check your .env.local file.')
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -19,13 +13,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     storageKey: 'openplay-auth',
     detectSessionInUrl: true,
-    flowType: 'pkce', // Fix: PKCE required for Safari/iOS OAuth compatibility
+    flowType: 'pkce',
   },
 })
 
-// ─── Sport config ─────────────────────────────────────────────
-// IMPORTANT: these IDs must match the CHECK constraint in your DB:
-// sport in ('badminton','pickleball','tennis','tabletennis')
+// ─── Sport config ────────────────────────────────────────────
 export const SPORTS = [
   { id: 'badminton',   label: 'Badminton',    emoji: '🏸' },
   { id: 'pickleball',  label: 'Pickleball',   emoji: '🥒' },

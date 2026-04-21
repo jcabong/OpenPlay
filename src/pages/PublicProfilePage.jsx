@@ -1,268 +1,226 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../hooks/useAuth'
-import { Trophy, Clock, MapPin, ArrowLeft, Loader2, Swords } from 'lucide-react'
+import { Trophy, Clock, MapPin, ArrowLeft } from 'lucide-react'
+
+const SPORTS = ['badminton', 'pickleball', 'tennis', 'tabletennis', 'golf']
 
 export default function PublicProfilePage() {
-  // Support both /user/:username and /profile/:userId
-  const { userId, username: usernameParam } = useParams()
-  const { user: currentUser } = useAuth()
+  const { userId } = useParams()
   const navigate = useNavigate()
-
   const [profile, setProfile] = useState(null)
   const [games, setGames] = useState([])
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
-
-  // If viewing own profile, redirect to /profile
-  useEffect(() => {
-    if (currentUser && userId === currentUser.id) {
-      navigate('/profile', { replace: true })
-    }
-  }, [currentUser, userId, navigate])
+  const [activeSport, setActiveSport] = useState('all')
 
   useEffect(() => {
-    if (userId || usernameParam) fetchData()
-  }, [userId, usernameParam])
+    if (userId) fetchData()
+  }, [userId])
 
   async function fetchData() {
     setLoading(true)
-    try {
-      let profileQuery = supabase.from('users').select('*')
-
-      if (userId) {
-        // Route was /profile/:userId  — look up by UUID
-        profileQuery = profileQuery.eq('id', userId)
-      } else if (usernameParam) {
-        // Route was /user/:username — look up by handle
-        profileQuery = profileQuery.eq('username', usernameParam)
-      } else {
-        setNotFound(true)
-        setLoading(false)
-        return
-      }
-
-      const { data: p, error } = await profileQuery.single()
-
-      if (error || !p) {
-        setNotFound(true)
-        setLoading(false)
-        return
-      }
-
-      // If viewing own profile via username route, redirect to /profile
-      if (currentUser && p.id === currentUser.id) {
-        navigate('/profile', { replace: true })
-        return
-      }
-
-      const { data: g } = await supabase
+    const [{ data: u }, { data: g }, { data: po }] = await Promise.all([
+      supabase.from('users').select('*').eq('id', userId).single(),
+      supabase
         .from('games')
-        .select('*')
-        .eq('user_id', p.id)
-        .eq('is_deleted', false)
-        .order('created_at', { ascending: false })
-
-      const { data: po } = await supabase
+        .select('id, sport, result, score, court_name, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false }),
+      supabase
         .from('posts')
-        .select('*')
-        .eq('author_id', p.id)
-        .eq('is_deleted', false)
+        .select('id, content, sport, location_name, inserted_at')
+        .eq('user_id', userId)
         .order('inserted_at', { ascending: false })
-        .limit(10)
-
-      setProfile(p)
-      setGames(g || [])
-      setPosts(po || [])
-    } catch (err) {
-      console.error('PublicProfilePage fetchData error:', err)
-      setNotFound(true)
-    }
+        .limit(20)
+    ])
+    setProfile(u)
+    setGames(g || [])
+    setPosts(po || [])
     setLoading(false)
   }
+
+  // Same filter + calc logic as ProfilePage and Leaderboard
+  const filteredGames = activeSport === 'all'
+    ? games
+    : games.filter(g => g.sport === activeSport)
+
+  const wins   = filteredGames.filter(g => g.result === 'win').length
+  const losses = filteredGames.filter(g => g.result === 'loss').length
+  const total  = filteredGames.length
+  const winRate = total > 0 ? Math.round((wins / total) * 100) : 0
+
+  const sportBreakdown = SPORTS
+    .map(sport => ({
+      sport,
+      wins:  games.filter(g => g.sport === sport && g.result === 'win').length,
+      total: games.filter(g => g.sport === sport).length,
+    }))
+    .filter(s => s.total > 0)
+    .sort((a, b) => b.wins - a.wins)
 
   if (loading) {
     return (
       <div className="min-h-screen bg-ink-900 flex items-center justify-center">
-        <Loader2 className="animate-spin text-accent" size={32} />
+        <div className="relative w-14 h-14">
+          <div className="absolute inset-0 rounded-full border-2 border-accent/20 animate-ping" />
+          <div className="absolute inset-2 rounded-full bg-accent/10 flex items-center justify-center">
+            <span className="text-2xl">🏸</span>
+          </div>
+        </div>
       </div>
     )
   }
 
-  if (notFound) {
+  if (!profile) {
     return (
-      <div className="min-h-screen bg-ink-900 flex flex-col items-center justify-center gap-4 px-6">
-        <div className="text-6xl">🏸</div>
-        <h2 className="font-display text-2xl font-bold text-ink-50 uppercase italic">Player not found</h2>
-        <p className="text-ink-500 text-sm text-center">This player might have left the court.</p>
-        <button
-          onClick={() => navigate(-1)}
-          className="mt-4 px-6 py-3 glass rounded-2xl text-accent text-xs font-black uppercase tracking-widest border border-accent/20"
-        >
-          Go Back
+      <div className="min-h-screen bg-ink-900 flex flex-col items-center justify-center text-ink-50 gap-4">
+        <p className="text-ink-400 text-sm">Player not found</p>
+        <button onClick={() => navigate(-1)} className="text-accent text-xs font-black uppercase">
+          ← Go Back
         </button>
       </div>
     )
   }
 
-  const wins = games.filter(g => g.result === 'win').length
-  const losses = games.filter(g => g.result === 'loss').length
-  const winRate = games.length > 0 ? ((wins / games.length) * 100).toFixed(0) : 0
-
-  const sportBreakdown = games.reduce((acc, g) => {
-    acc[g.sport] = (acc[g.sport] || 0) + 1
-    return acc
-  }, {})
-  const topSport = Object.entries(sportBreakdown).sort((a, b) => b[1] - a[1])[0]
-
-  const initial = (profile?.username || 'U').charAt(0).toUpperCase()
+  const displayName = profile.username || 'Player'
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-24">
-      {/* Header bar */}
-      <div className="sticky top-0 z-10 glass border-b border-white/5 px-4 py-3 flex items-center gap-3">
-        <button
-          onClick={() => navigate(-1)}
-          className="p-2 rounded-xl bg-white/5 border border-white/10 text-ink-400 hover:text-accent transition-colors"
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <span className="font-display font-bold text-sm uppercase italic tracking-tight text-ink-200">
-          @{profile?.username}
-        </span>
+    <div className="min-h-screen bg-ink-900 text-ink-50 pb-24 px-6 pt-6">
+
+      {/* Back */}
+      <button
+        onClick={() => navigate(-1)}
+        className="flex items-center gap-2 text-ink-400 hover:text-accent transition-colors mb-8 text-[10px] font-black uppercase tracking-widest"
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+
+      {/* Header */}
+      <div className="flex flex-col items-center mb-8">
+        <div className="w-20 h-20 bg-accent rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-3xl mb-4 glow-accent">
+          {displayName.charAt(0).toUpperCase()}
+        </div>
+        <h1 className="text-2xl font-display font-bold uppercase italic">@{displayName}</h1>
+        <p className="text-ink-600 text-[9px] uppercase font-black tracking-widest mt-1">
+          {games.length} matches logged
+        </p>
       </div>
 
-      <div className="px-5 pt-8">
-        {/* Avatar + Name */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="relative mb-4">
-            {profile?.avatar_url && profile?.avatar_type !== 'initials' ? (
-              <div className="w-24 h-24 rounded-[2rem] overflow-hidden border border-accent/20">
-                <img src={profile.avatar_url} alt={profile.username} className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <div className="w-24 h-24 bg-gradient-to-br from-accent/30 to-accent/5 rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-4xl font-display border border-accent/20">
-                <span className="text-accent">{initial}</span>
-              </div>
-            )}
-            {topSport && (
-              <span className="absolute -bottom-2 -right-2 bg-ink-800 border border-white/10 text-[9px] font-black uppercase px-2 py-1 rounded-full text-accent">
-                {topSport[0]}
-              </span>
-            )}
-          </div>
-          <h1 className="text-2xl font-display font-bold uppercase italic tracking-tight">
-            @{profile?.username}
-          </h1>
-          {profile?.display_name && profile.display_name !== profile.username && (
-            <p className="text-ink-400 text-sm mt-0.5">{profile.display_name}</p>
-          )}
-          {(profile?.city || profile?.region) && (
-            <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-2">
-              <MapPin size={11} className="text-accent" />
-              {[profile?.city, profile?.region].filter(Boolean).join(', ')}
-            </div>
-          )}
-          {profile?.bio && (
-            <p className="text-ink-300 text-sm mt-3 text-center leading-relaxed max-w-sm">{profile.bio}</p>
-          )}
-          <p className="text-ink-500 text-[10px] uppercase font-black tracking-widest mt-2">
-            Member since {new Date(profile?.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-          </p>
+      {/* Sport Filter */}
+      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar mb-6">
+        <button
+          onClick={() => setActiveSport('all')}
+          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
+            activeSport === 'all'
+              ? 'bg-accent text-ink-900 border-accent glow-accent'
+              : 'bg-white/5 border-white/10 text-ink-500'
+          }`}
+        >
+          All
+        </button>
+        {SPORTS.map(s => (
+          <button
+            key={s}
+            onClick={() => setActiveSport(s)}
+            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
+              activeSport === s
+                ? 'bg-accent text-ink-900 border-accent glow-accent'
+                : 'bg-white/5 border-white/10 text-ink-500'
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {/* Stats */}
+      <div className="glass p-6 rounded-[2.5rem] border border-white/10 mb-6 bg-gradient-to-br from-white/5 to-transparent">
+        <div className="flex justify-between items-center text-[10px] font-black uppercase text-ink-600 mb-4 border-b border-white/5 pb-2">
+          <span className="flex items-center gap-2">
+            <Trophy size={12} className="text-accent" />
+            {activeSport === 'all' ? 'Career Stats' : `${activeSport} Stats`}
+          </span>
+          <span className="text-ink-700">{total} games</span>
         </div>
-
-        {/* Stats Grid */}
-        <div className="glass p-5 rounded-[2.5rem] border border-white/10 mb-6 bg-gradient-to-br from-white/5 to-transparent">
-          <div className="flex justify-between items-center text-[10px] font-black uppercase text-ink-600 mb-4 pb-2 border-b border-white/5">
-            <span>Career Stats</span>
-            <Trophy size={14} className="text-accent" />
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <p className="text-2xl font-display font-bold text-accent">{winRate}%</p>
+            <p className="text-[8px] uppercase font-black text-ink-600">Win Rate</p>
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-accent">{winRate}%</p>
-              <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Win Rate</p>
-            </div>
-            <div className="text-center border-x border-white/5">
-              <p className="text-2xl font-display font-bold">{games.length}</p>
-              <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Matches</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-display font-bold text-accent">{wins}</p>
-              <p className="text-[8px] uppercase font-black text-ink-600 mt-0.5">Victories</p>
-            </div>
+          <div>
+            <p className="text-2xl font-display font-bold text-accent">{wins}</p>
+            <p className="text-[8px] uppercase font-black text-ink-600">Wins</p>
           </div>
-
-          {games.length > 0 && (
-            <div className="mt-4">
-              <div className="flex h-2 rounded-full overflow-hidden gap-0.5">
-                <div
-                  className="bg-accent rounded-l-full transition-all"
-                  style={{ width: `${winRate}%` }}
-                />
-                <div className="bg-spark/60 rounded-r-full flex-1 transition-all" />
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-[8px] text-accent font-black uppercase">{wins}W</span>
-                <span className="text-[8px] text-spark font-black uppercase">{losses}L</span>
-              </div>
-            </div>
-          )}
+          <div>
+            <p className="text-2xl font-display font-bold">{losses}</p>
+            <p className="text-[8px] uppercase font-black text-ink-600">Losses</p>
+          </div>
         </div>
+        {total > 0 ? (
+          <div>
+            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div className="h-full bg-accent rounded-full transition-all duration-700" style={{ width: `${winRate}%` }} />
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-[8px] text-ink-600 font-black uppercase">{wins}W</span>
+              <span className="text-[8px] text-ink-600 font-black uppercase">{losses}L</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-center text-ink-700 text-[10px] uppercase font-black py-2">No games logged yet</p>
+        )}
+      </div>
 
-        {/* Sport Breakdown */}
-        {Object.keys(sportBreakdown).length > 0 && (
-          <div className="mb-6">
-            <h2 className="text-[10px] font-black uppercase text-ink-600 mb-3 ml-1 flex items-center gap-2">
-              <Swords size={12} /> Sports Played
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(sportBreakdown)
-                .sort((a, b) => b[1] - a[1])
-                .map(([sport, count]) => (
-                  <div
-                    key={sport}
-                    className="glass px-4 py-2 rounded-2xl border border-white/5 flex items-center gap-2"
-                  >
-                    <span className="text-[10px] font-black uppercase text-accent">{sport}</span>
-                    <span className="text-[9px] text-ink-500 font-bold">{count}x</span>
+      {/* Per-Sport Breakdown */}
+      {sportBreakdown.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-[10px] font-black uppercase text-ink-600 mb-3 ml-2 flex items-center gap-2">
+            <Trophy size={12} /> Sport Breakdown
+          </h2>
+          <div className="space-y-2">
+            {sportBreakdown.map(stat => {
+              const pct = stat.total > 0 ? Math.round((stat.wins / stat.total) * 100) : 0
+              return (
+                <div key={stat.sport} className="glass p-4 rounded-2xl border border-white/5 flex items-center gap-4">
+                  <span className="text-[10px] font-black uppercase text-ink-400 w-20 shrink-0">{stat.sport}</span>
+                  <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
                   </div>
-                ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent Activity */}
-        <h2 className="text-[10px] font-black uppercase text-ink-600 mb-4 ml-1 flex items-center gap-2">
-          <Clock size={12} /> Recent Activity
-        </h2>
-
-        {posts.length === 0 && !loading && (
-          <div className="text-center py-10 glass border border-dashed border-white/10 rounded-3xl opacity-30 text-[10px] uppercase font-black">
-            No activity yet
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {posts.map(post => (
-            <div
-              key={post.id}
-              className="glass p-5 rounded-[2rem] border border-white/5 bg-white/[0.01]"
-            >
-              <p className="text-ink-600 text-[8px] font-black uppercase mb-2">
-                {new Date(post.inserted_at || post.created_at).toLocaleDateString()}
-              </p>
-              <p className="text-sm text-ink-100 leading-relaxed">{post.content}</p>
-              {post.location_name && (
-                <div className="mt-3 flex items-center gap-1 text-ink-500 text-[9px] font-bold uppercase">
-                  <MapPin size={10} className="text-accent" />
-                  {post.location_name}
+                  <div className="text-right shrink-0">
+                    <span className="text-accent font-display font-bold text-sm">{stat.wins}</span>
+                    <span className="text-ink-600 text-[10px] font-black">/{stat.total}</span>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+              )
+            })}
+          </div>
         </div>
+      )}
+
+      {/* Recent Activity */}
+      <h2 className="text-[10px] font-black uppercase text-ink-600 mb-4 ml-2 flex items-center gap-2">
+        <Clock size={12} /> Recent Highlights
+      </h2>
+      <div className="space-y-4">
+        {posts.map(post => (
+          <div key={post.id} className="glass p-5 rounded-[2rem] border border-white/5 bg-white/[0.01]">
+            <p className="text-ink-600 text-[8px] font-black uppercase mb-2">
+              {new Date(post.inserted_at).toLocaleDateString()}
+            </p>
+            <p className="text-sm text-ink-100">{post.content}</p>
+            {post.location_name && (
+              <div className="mt-3 flex items-center gap-1 text-ink-500 text-[9px] font-bold uppercase">
+                <MapPin size={10} className="text-accent" /> {post.location_name}
+              </div>
+            )}
+          </div>
+        ))}
+        {posts.length === 0 && (
+          <div className="text-center py-10 glass border-dashed border-white/10 rounded-3xl opacity-30 text-[10px] uppercase font-black">
+            No activities logged yet
+          </div>
+        )}
       </div>
     </div>
   )
