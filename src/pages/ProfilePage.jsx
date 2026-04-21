@@ -1,202 +1,479 @@
-cat > src/pages/ProfilePage.jsx << 'EOF'
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { Trophy, Clock, MapPin } from 'lucide-react'
+import { supabase, SPORTS } from '../lib/supabase'
+import { useNavigate } from 'react-router-dom'
+import { MapPin, Calendar, Edit2, Save, X, Loader2, Camera, Check, Trophy, MessageSquare } from 'lucide-react'
 
-const SPORTS = ['badminton', 'pickleball', 'tennis', 'tabletennis', 'golf']
+const DEFAULT_AVATARS = [
+  { id: 'avatar-1', src: '/avatars/avatar-1.jpeg', label: 'Badminton M' },
+  { id: 'avatar-2', src: '/avatars/avatar-2.jpeg', label: 'Badminton F' },
+  { id: 'avatar-3', src: '/avatars/avatar-3.jpeg', label: 'Tennis M'    },
+  { id: 'avatar-4', src: '/avatars/avatar-4.jpeg', label: 'Tennis F'    },
+  { id: 'avatar-5', src: '/avatars/avatar-5.jpeg', label: 'Pickleball M'},
+  { id: 'avatar-6', src: '/avatars/avatar-6.jpeg', label: 'Pickleball F'},
+  { id: 'avatar-7', src: '/avatars/avatar-7.jpeg', label: 'Table Tennis M'},
+  { id: 'avatar-8', src: '/avatars/avatar-8.jpeg', label: 'Table Tennis F'},
+]
 
-export default function ProfilePage() {
-  const { user, profile, signOut } = useAuth()
-  const [games, setGames] = useState([])
-  const [posts, setPosts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [activeSport, setActiveSport] = useState('all')
+function AvatarPicker({ currentUrl, currentType, onSave, onClose }) {
+  const [selected, setSelected]         = useState(currentUrl || null)
+  const [selectedType, setSelectedType] = useState(currentType || 'initials')
+  const [uploading, setUploading]       = useState(false)
+  const [saving, setSaving]             = useState(false)
+  const fileRef                         = useRef(null)
+  const { user }                        = useAuth()
 
-  useEffect(() => {
-    if (user) fetchData()
-  }, [user])
-
-  async function fetchData() {
-    setLoading(true)
-
-    const [{ data: g }, { data: po }] = await Promise.all([
-      supabase
-        .from('games')
-        .select('id, sport, result, score, court_name, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('posts')
-        .select('id, content, sport, location_name, inserted_at')
-        .eq('user_id', user.id)
-        .order('inserted_at', { ascending: false })
-        .limit(20)
-    ])
-
-    setGames(g || [])
-    setPosts(po || [])
-    setLoading(false)
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const ext  = file.name.split('.').pop()
+    const path = `avatars/${user.id}-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('openplay-media').upload(path, file, { upsert: true })
+    if (!error) {
+      const { data: { publicUrl } } = supabase.storage.from('openplay-media').getPublicUrl(path)
+      setSelected(publicUrl)
+      setSelectedType('custom')
+    }
+    setUploading(false)
   }
 
-  const filteredGames = activeSport === 'all'
-    ? games
-    : games.filter(g => g.sport === activeSport)
-
-  const wins   = filteredGames.filter(g => g.result === 'win').length
-  const losses = filteredGames.filter(g => g.result === 'loss').length
-  const total  = filteredGames.length
-  const winRate = total > 0 ? Math.round((wins / total) * 100) : 0
-
-  const sportBreakdown = SPORTS
-    .map(sport => ({
-      sport,
-      wins:  games.filter(g => g.sport === sport && g.result === 'win').length,
-      total: games.filter(g => g.sport === sport).length,
-    }))
-    .filter(s => s.total > 0)
-    .sort((a, b) => b.wins - a.wins)
-
-  const displayName = profile?.username || user?.email?.split('@')[0] || 'Player'
+  async function handleSave() {
+    setSaving(true)
+    await onSave({ url: selected, type: selectedType })
+    setSaving(false)
+    onClose()
+  }
 
   return (
-    <div className="min-h-screen bg-ink-900 text-ink-50 pb-24 px-6 pt-12">
-      <div className="flex flex-col items-center mb-8">
-        <div className="w-20 h-20 bg-accent rounded-[2rem] flex items-center justify-center font-bold text-ink-900 text-3xl mb-4 glow-accent">
-          {displayName.charAt(0).toUpperCase()}
-        </div>
-        <h1 className="text-2xl font-display font-bold uppercase italic">@{displayName}</h1>
-        <p className="text-ink-600 text-[9px] uppercase font-black tracking-widest mt-1">
-          {games.length} matches logged
-        </p>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar mb-6">
-        <button
-          onClick={() => setActiveSport('all')}
-          className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
-            activeSport === 'all'
-              ? 'bg-accent text-ink-900 border-accent glow-accent'
-              : 'bg-white/5 border-white/10 text-ink-500'
-          }`}
-        >
-          All
-        </button>
-        {SPORTS.map(s => (
-          <button
-            key={s}
-            onClick={() => setActiveSport(s)}
-            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border shrink-0 transition-all ${
-              activeSport === s
-                ? 'bg-accent text-ink-900 border-accent glow-accent'
-                : 'bg-white/5 border-white/10 text-ink-500'
-            }`}
-          >
-            {s}
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-end">
+      <div className="w-full rounded-t-[2.5rem] border-t border-white/10 p-6 max-h-[90vh] overflow-y-auto" style={{ background: '#0f0f1a' }}>
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-black italic uppercase text-white">Choose Avatar</h2>
+          <button onClick={onClose} className="p-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
+            <X size={18} className="text-white" />
           </button>
-        ))}
-      </div>
-
-      <div className="glass p-6 rounded-[2.5rem] border border-white/10 mb-6 bg-gradient-to-br from-white/5 to-transparent">
-        <div className="flex justify-between items-center text-[10px] font-black uppercase text-ink-600 mb-4 border-b border-white/5 pb-2">
-          <span className="flex items-center gap-2">
-            <Trophy size={12} className="text-accent" />
-            {activeSport === 'all' ? 'Career Stats' : `${activeSport} Stats`}
-          </span>
-          <span className="text-ink-700">{total} games</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div>
-            <p className="text-2xl font-display font-bold text-accent">{winRate}%</p>
-            <p className="text-[8px] uppercase font-black text-ink-600">Win Rate</p>
-          </div>
-          <div>
-            <p className="text-2xl font-display font-bold text-accent">{wins}</p>
-            <p className="text-[8px] uppercase font-black text-ink-600">Wins</p>
-          </div>
-          <div>
-            <p className="text-2xl font-display font-bold">{losses}</p>
-            <p className="text-[8px] uppercase font-black text-ink-600">Losses</p>
-          </div>
+        <div className="flex justify-center mb-5">
+          {selected && selectedType !== 'initials' ? (
+            <img src={selected} alt="avatar" className="w-24 h-24 rounded-[1.5rem] object-cover border-2 border-accent" />
+          ) : (
+            <div className="w-24 h-24 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl border-2 border-accent">
+              {(user?.email || 'U').charAt(0).toUpperCase()}
+            </div>
+          )}
         </div>
 
-        {total > 0 ? (
-          <div>
-            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent rounded-full transition-all duration-700"
-                style={{ width: `${winRate}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[8px] text-ink-600 font-black uppercase">{wins}W</span>
-              <span className="text-[8px] text-ink-600 font-black uppercase">{losses}L</span>
-            </div>
-          </div>
-        ) : (
-          <p className="text-center text-ink-700 text-[10px] uppercase font-black py-2">
-            No {activeSport === 'all' ? '' : activeSport + ' '}games logged yet
-          </p>
-        )}
-      </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl mb-5 text-sm font-black uppercase tracking-widest border-2 border-dashed transition-all"
+          style={{ borderColor: 'rgba(200,255,0,0.4)', color: '#c8ff00' }}
+        >
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+          {uploading ? 'Uploading...' : 'Upload My Photo'}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
 
-      {sportBreakdown.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-[10px] font-black uppercase text-ink-600 mb-3 ml-2 flex items-center gap-2">
-            <Trophy size={12} /> Sport Breakdown
-          </h2>
-          <div className="space-y-2">
-            {sportBreakdown.map(stat => {
-              const pct = stat.total > 0 ? Math.round((stat.wins / stat.total) * 100) : 0
-              return (
-                <div key={stat.sport} className="glass p-4 rounded-2xl border border-white/5 flex items-center gap-4">
-                  <span className="text-[10px] font-black uppercase text-ink-400 w-20 shrink-0">{stat.sport}</span>
-                  <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                    <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-accent font-display font-bold text-sm">{stat.wins}</span>
-                    <span className="text-ink-600 text-[10px] font-black">/{stat.total}</span>
-                  </div>
+        <p className="text-[9px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>
+          Default Avatars
+        </p>
+        <div className="grid grid-cols-4 gap-3 mb-6">
+          {DEFAULT_AVATARS.map(av => {
+            const isSelected = selected === av.src && selectedType === 'default'
+            return (
+              <button key={av.id} type="button"
+                onClick={() => { setSelected(av.src); setSelectedType('default') }}
+                className="relative flex flex-col items-center gap-1.5">
+                <div className={`w-full aspect-square rounded-2xl overflow-hidden border-2 transition-all ${isSelected ? 'border-accent' : 'border-white/10'}`}>
+                  <img src={av.src} alt={av.label} className="w-full h-full object-cover" />
                 </div>
-              )
-            })}
-          </div>
+                {isSelected && (
+                  <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
+                    <Check size={11} className="text-ink-900" />
+                  </div>
+                )}
+                <span className="text-[9px] text-ink-500 font-bold text-center leading-tight">{av.label}</span>
+              </button>
+            )
+          })}
         </div>
-      )}
 
-      <h2 className="text-[10px] font-black uppercase text-ink-600 mb-4 ml-2 flex items-center gap-2">
-        <Clock size={12} /> Recent Highlights
-      </h2>
-      <div className="space-y-4">
-        {posts.map(post => (
-          <div key={post.id} className="glass p-5 rounded-[2rem] border border-white/5 bg-white/[0.01]">
-            <p className="text-ink-600 text-[8px] font-black uppercase mb-2">
-              {new Date(post.inserted_at).toLocaleDateString()}
-            </p>
-            <p className="text-sm text-ink-100">{post.content}</p>
-            {post.location_name && (
-              <div className="mt-3 flex items-center gap-1 text-ink-500 text-[9px] font-bold uppercase">
-                <MapPin size={10} className="text-accent" /> {post.location_name}
-              </div>
-            )}
-          </div>
-        ))}
-        {!loading && posts.length === 0 && (
-          <div className="text-center py-10 glass border-dashed border-white/10 rounded-3xl opacity-30 text-[10px] uppercase font-black">
-            No activities logged yet
-          </div>
-        )}
+        <button
+          onClick={handleSave}
+          disabled={saving || !selected}
+          className="w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm disabled:opacity-50"
+          style={{ background: '#c8ff00', color: '#0a0a0f' }}
+        >
+          {saving ? 'Saving...' : 'Save Avatar'}
+        </button>
       </div>
-
-      <button
-        onClick={signOut}
-        className="w-full py-4 glass rounded-2xl text-spark font-bold mt-12 text-xs uppercase tracking-widest"
-      >
-        Sign Out
-      </button>
     </div>
   )
 }
-EOF
+
+function MatchRow({ game }) {
+  const sport = SPORTS.find(s => s.id === game.sport)
+  const isWin = game.result === 'win'
+  return (
+    <div className="flex items-center gap-3 p-4 border-b border-white/5 last:border-none">
+      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 ${isWin ? 'bg-accent/10' : 'bg-spark/10'}`}>
+        {sport?.emoji || '🏸'}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-ink-100 truncate">
+          {sport?.label}
+          {game.opponent_name && <span className="text-ink-500 font-normal"> vs {game.opponent_name}</span>}
+        </p>
+        {game.court_name && (
+          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+            <MapPin size={8} />{game.court_name}{game.city ? ` · ${game.city}` : ''}
+          </p>
+        )}
+      </div>
+      <div className="text-right shrink-0">
+        <p className={`text-xs font-black uppercase ${isWin ? 'text-accent' : 'text-spark'}`}>
+          {isWin ? 'WIN' : 'LOSS'}
+        </p>
+        {game.score && <p className="text-[10px] text-ink-500">{game.score}</p>}
+        <p className="text-[9px] text-ink-700 mt-0.5">
+          {new Date(game.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function PostRow({ post }) {
+  const sport = SPORTS.find(s => s.id === post.sport)
+  const hasMedia = post.media_urls?.length > 0
+  return (
+    <div className="flex items-start gap-3 p-4 border-b border-white/5 last:border-none">
+      <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-lg shrink-0 bg-white/5">
+        {sport ? sport.emoji : '💬'}
+      </div>
+      <div className="flex-1 min-w-0">
+        {sport && (
+          <span className="text-[9px] font-black uppercase tracking-widest text-accent mb-1 block">
+            {sport.label}
+          </span>
+        )}
+        {post.content && (
+          <p className="text-sm text-ink-200 leading-relaxed line-clamp-2">{post.content}</p>
+        )}
+        {hasMedia && (
+          <p className="text-[9px] text-ink-600 font-bold mt-1">
+            📎 {post.media_urls.length} media attached
+          </p>
+        )}
+        {post.location_name && (
+          <p className="text-[9px] text-ink-600 font-bold flex items-center gap-0.5 mt-0.5">
+            <MapPin size={8} />{post.location_name}
+          </p>
+        )}
+      </div>
+      <div className="text-right shrink-0">
+        <div className="flex items-center gap-1 text-ink-600 text-[10px] font-bold justify-end">
+          <MessageSquare size={10} />
+          {post.comments?.length || 0}
+        </div>
+        <p className="text-[9px] text-ink-700 mt-1">
+          {new Date(post.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+const TABS = ['Matches', 'Posts']
+
+export default function ProfilePage() {
+  const { user, profile, refreshProfile } = useAuth()
+  const navigate  = useNavigate()
+  const [activeTab, setActiveTab] = useState('Matches')
+  const [games, setGames]         = useState([])
+  const [posts, setPosts]         = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [editing, setEditing]     = useState(false)
+  const [formData, setFormData]   = useState({
+    display_name: '',
+    bio: '',
+    city: '',
+    region: '',
+  })
+  const [saving, setSaving]             = useState(false)
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+  const [avatarUrl, setAvatarUrl]       = useState(profile?.avatar_url || null)
+  const [avatarType, setAvatarType]     = useState(profile?.avatar_type || 'initials')
+  const [saveMsg, setSaveMsg]           = useState('')
+
+  useEffect(() => {
+    if (!user) { navigate('/login'); return }
+    loadAll()
+    if (profile) {
+      setFormData({
+        display_name: profile.display_name || '',
+        bio:          profile.bio          || '',
+        city:         profile.city         || '',
+        region:       profile.region       || '',
+      })
+      setAvatarUrl(profile.avatar_url   || null)
+      setAvatarType(profile.avatar_type || 'initials')
+    }
+  }, [user, profile])
+
+  async function loadAll() {
+    setLoading(true)
+    await Promise.all([loadGames(), loadPosts()])
+    setLoading(false)
+  }
+
+  async function loadGames() {
+    const { data } = await supabase
+      .from('games')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+    setGames(data || [])
+  }
+
+  async function loadPosts() {
+    const { data } = await supabase
+      .from('posts')
+      .select('*, comments(id)')
+      .eq('author_id', user.id)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+    setPosts(data || [])
+  }
+
+  async function saveAvatar({ url, type }) {
+    const { error } = await supabase.from('users').update({
+      avatar_url:  url,
+      avatar_type: type,
+    }).eq('id', user.id)
+    if (!error) {
+      setAvatarUrl(url)
+      setAvatarType(type)
+      refreshProfile()
+    }
+  }
+
+  async function handleSaveProfile() {
+    setSaving(true)
+    const { error } = await supabase
+      .from('users')
+      .update({
+        display_name: formData.display_name,
+        bio:          formData.bio,
+        city:         formData.city,
+        region:       formData.region,
+      })
+      .eq('id', user.id)
+
+    if (!error) {
+      setEditing(false)
+      refreshProfile()
+      setSaveMsg('Profile updated!')
+      setTimeout(() => setSaveMsg(''), 3000)
+    } else {
+      setSaveMsg('Error updating profile')
+      setTimeout(() => setSaveMsg(''), 3000)
+    }
+    setSaving(false)
+  }
+
+  const totalWins    = games.filter(g => g.result === 'win').length
+  const totalMatches = games.length
+  const winRate      = totalMatches ? Math.round(totalWins / totalMatches * 100) : 0
+  const initial      = (profile?.username || 'U').charAt(0).toUpperCase()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-ink-900 flex items-center justify-center">
+        <Loader2 className="animate-spin text-accent" size={28} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
+      <div className="px-5 pt-14 pb-2">
+        <h1 className="text-2xl font-black italic uppercase tracking-tighter">My Profile</h1>
+      </div>
+
+      {/* Avatar + identity */}
+      <div className="px-5 pb-4">
+        <div className="relative w-20 h-20 mb-3">
+          {avatarUrl && avatarType !== 'initials' ? (
+            <img src={avatarUrl} alt="avatar" className="w-20 h-20 rounded-[1.5rem] object-cover" />
+          ) : (
+            <div className="w-20 h-20 rounded-[1.5rem] bg-accent flex items-center justify-center font-bold text-ink-900 text-3xl">
+              {initial}
+            </div>
+          )}
+          <button
+            onClick={() => setShowAvatarPicker(true)}
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center border-2 border-ink-900"
+            style={{ background: '#c8ff00' }}>
+            <Camera size={13} className="text-ink-900" />
+          </button>
+        </div>
+
+        {!editing ? (
+          <>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-2xl font-bold italic uppercase tracking-tighter text-white">
+                {profile?.display_name || `@${profile?.username}`}
+              </h1>
+              <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-white/10">
+                <Edit2 size={14} className="text-ink-500" />
+              </button>
+            </div>
+            <p className="text-accent text-sm font-bold mt-0.5">@{profile?.username}</p>
+            {(profile?.city || profile?.region) && (
+              <div className="flex items-center gap-1.5 text-ink-500 text-xs font-bold mt-1.5">
+                <MapPin size={11} className="text-accent" />
+                {[profile?.city, profile?.region].filter(Boolean).join(', ')}
+              </div>
+            )}
+            {profile?.bio && (
+              <p className="text-ink-300 text-sm mt-3 leading-relaxed max-w-sm">{profile?.bio}</p>
+            )}
+            {saveMsg !== '' && (
+              <p className={`text-xs font-bold mt-2 ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
+                {saveMsg}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="space-y-3 mt-2">
+            <input
+              type="text"
+              value={formData.display_name}
+              onChange={e => setFormData({ ...formData, display_name: e.target.value })}
+              placeholder="Display name"
+              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+            />
+            <textarea
+              value={formData.bio}
+              onChange={e => setFormData({ ...formData, bio: e.target.value })}
+              placeholder="Bio"
+              rows={3}
+              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white resize-none"
+            />
+            <input
+              type="text"
+              value={formData.city}
+              onChange={e => setFormData({ ...formData, city: e.target.value })}
+              placeholder="City"
+              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+            />
+            <input
+              type="text"
+              value={formData.region}
+              onChange={e => setFormData({ ...formData, region: e.target.value })}
+              placeholder="Region/Province"
+              className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-accent focus:outline-none text-white"
+            />
+            {saveMsg !== '' && (
+              <p className={`text-xs font-bold ${saveMsg.includes('Error') ? 'text-red-400' : 'text-accent'}`}>
+                {saveMsg}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="flex-1 py-2 rounded-xl bg-accent text-ink-900 font-bold text-sm flex items-center justify-center gap-2"
+              >
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                Save
+              </button>
+              <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl bg-white/5 text-ink-400 font-bold text-sm">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3 px-4 mb-5">
+        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-2xl font-bold text-accent italic">{totalWins}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Wins</p>
+        </div>
+        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-2xl font-bold text-accent italic">{winRate}%</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Win Rate</p>
+        </div>
+        <div className="glass p-3.5 rounded-[1.25rem] border border-white/5 text-center">
+          <p className="font-display text-2xl font-bold text-accent italic">{totalMatches}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-ink-600 mt-1">Matches</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="px-4 mb-4">
+        <div className="flex rounded-2xl overflow-hidden border border-white/10 glass">
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === tab ? 'bg-accent text-ink-900' : 'text-ink-400 hover:text-white'
+              }`}
+            >
+              {tab === 'Matches' ? <Trophy size={12} /> : <MessageSquare size={12} />}
+              {tab}
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                activeTab === tab ? 'bg-ink-900/20 text-ink-900' : 'bg-white/10 text-ink-500'
+              }`}>
+                {tab === 'Matches' ? totalMatches : posts.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div className="px-4">
+        {activeTab === 'Matches' && (
+          games.length === 0 ? (
+            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
+              No matches yet
+            </div>
+          ) : (
+            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+              {games.map(game => <MatchRow key={game.id} game={game} />)}
+            </div>
+          )
+        )}
+
+        {activeTab === 'Posts' && (
+          posts.length === 0 ? (
+            <div className="text-center py-14 text-ink-600 text-xs font-black uppercase tracking-widest">
+              No posts yet
+            </div>
+          ) : (
+            <div className="glass rounded-[2rem] border border-white/10 overflow-hidden">
+              {posts.map(post => <PostRow key={post.id} post={post} />)}
+            </div>
+          )
+        )}
+      </div>
+
+      {showAvatarPicker && (
+        <AvatarPicker
+          currentUrl={avatarUrl}
+          currentType={avatarType}
+          onSave={saveAvatar}
+          onClose={() => setShowAvatarPicker(false)}
+        />
+      )}
+    </div>
+  )
+}
