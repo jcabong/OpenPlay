@@ -14,6 +14,7 @@ import AdminPage from './pages/AdminPage'
 import LoadingScreen from './components/LoadingScreen'
 import UsernameSetup from './components/UsernameSetup'
 import AuthCallback from './pages/AuthCallback'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -56,18 +57,16 @@ function ProtectedRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/"                    element={<FeedPage />} />
-        <Route path="/log"                 element={<LogGamePage />} />
-        <Route path="/ranks"               element={<LeaderboardPage />} />
-        <Route path="/events"              element={<EventsPage />} />
-        <Route path="/profile"             element={<ProfilePage />} />
-        
-        {/* FIXED: Unified parameters to handle both /profile/UUID and /user/username */}
-        <Route path="/profile/:idOrUsername" element={<PublicProfilePage />} />
-        <Route path="/user/:idOrUsername"    element={<PublicProfilePage />} />
-        
-        <Route path="/admin"               element={<AdminPage />} />
-        <Route path="*"                    element={<Navigate to="/" replace />} />
+        <Route path="/"                element={<ErrorBoundary><FeedPage /></ErrorBoundary>} />
+        <Route path="/log"             element={<ErrorBoundary><LogGamePage /></ErrorBoundary>} />
+        <Route path="/ranks"           element={<ErrorBoundary><LeaderboardPage /></ErrorBoundary>} />
+        <Route path="/events"          element={<ErrorBoundary><EventsPage /></ErrorBoundary>} />
+        <Route path="/profile"         element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
+        {/* Both routes handled by same component — username lookup OR userId lookup */}
+        <Route path="/profile/:userId" element={<ErrorBoundary><PublicProfilePage /></ErrorBoundary>} />
+        <Route path="/user/:username"  element={<ErrorBoundary><PublicProfilePage /></ErrorBoundary>} />
+        <Route path="/admin"           element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
+        <Route path="*"                element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )
@@ -75,14 +74,16 @@ function ProtectedRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login"         element={<LoginPage />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route path="/*"             element={<ProtectedRoutes />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login"         element={<LoginPage />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/*"             element={<ProtectedRoutes />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }

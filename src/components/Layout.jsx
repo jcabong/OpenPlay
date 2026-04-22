@@ -413,7 +413,7 @@ export default function Layout({ children }) {
         )}
 
         {/* Mobile main content with safe area top padding */}
-        <main className="pt-16 pb-20" style={{ paddingTop: 'calc(4rem + env(safe-area-inset-top))' }}>
+        <main className="pt-16" style={{ paddingTop: 'calc(4rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
           {children}
         </main>
 
@@ -425,7 +425,7 @@ export default function Layout({ children }) {
             borderColor: 'rgba(255,255,255,0.07)',
             paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
           }}>
-          <div className="flex items-center justify-around px-2 pt-2 pb-safe">
+          <div className="flex items-center justify-around px-2 pt-2" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}>
             {navItems.filter(item => !item.comingSoon).map(({ to, label, Icon, end }) => (
               <NavLink
                 key={to}
