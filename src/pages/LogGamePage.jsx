@@ -36,23 +36,8 @@ function parsePHAddress(addressComponents) {
     return c ? (c.longText || c.long_name || '') : ''
   }
 
-  // City: prefer admin_level_3 (city/municipality) over locality
-  // locality in PH is often barangay-level — avoid unless it's the only option
-  const cityLevel3 = get('administrative_area_level_3')
-  const locality   = get('locality')
-  const sublocal   = get('sublocality_level_1') || get('sublocality')
-
-  // Heuristic: if locality === sublocality, locality is a barangay — skip it
-  const localityIsBarangay = locality && sublocal && locality.toLowerCase() === sublocal.toLowerCase()
-
-  let city = ''
-  if (cityLevel3) {
-    city = cityLevel3
-  } else if (locality && !localityIsBarangay) {
-    city = locality
-  }
-
-  // Province: admin_level_2 is almost always province in PH
+  // Province: admin_level_2 is ALWAYS province in PH — resolve this FIRST
+  // so we can avoid accidentally using it as city
   let province = get('administrative_area_level_2')
 
   // If province is empty, try admin_level_1 (region) but label it clearly
@@ -62,6 +47,28 @@ function parsePHAddress(addressComponents) {
     if (region && !region.toLowerCase().includes('national capital')) {
       province = region
     }
+  }
+
+  // City: strict priority order — admin_level_3 is city/municipality in PH
+  // locality can be barangay-level in PH, only use if different from province
+  const cityLevel3  = get('administrative_area_level_3')
+  const cityLevel4  = get('administrative_area_level_4')
+  const locality    = get('locality')
+  const sublocal    = get('sublocality_level_1') || get('sublocality')
+
+  // Heuristic: if locality === sublocality, locality is a barangay — skip it
+  const localityIsBarangay = locality && sublocal && locality.toLowerCase() === sublocal.toLowerCase()
+
+  // Never use province value as city
+  const isProvince = (val) => val && province && val.toLowerCase().trim() === province.toLowerCase().trim()
+
+  let city = ''
+  if (cityLevel3 && !isProvince(cityLevel3)) {
+    city = cityLevel3
+  } else if (cityLevel4 && !isProvince(cityLevel4)) {
+    city = cityLevel4
+  } else if (locality && !localityIsBarangay && !isProvince(locality)) {
+    city = locality
   }
 
   return { city: city.trim(), province: province.trim() }
@@ -204,9 +211,12 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       })
 
       // If we still couldn't parse a city, fall back to secondary text
+      // but NEVER use the province value as the city
       if (!cityVal && s.secondary) {
         const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-        const fallbackCity = normalizeCityName(parts[0] || '')
+        const candidate = normalizeCityName(parts[0] || '')
+        // Only use candidate if it's different from the province
+        const fallbackCity = (candidate && candidate.toLowerCase() !== provinceVal.toLowerCase()) ? candidate : ''
         const fallbackProvince = parts[1] || provinceVal
         onCityChange(fallbackCity)
         onProvinceChange(fallbackProvince)
