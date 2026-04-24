@@ -3,9 +3,103 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { notifyMentions, sendNotification } from '../hooks/useNotifications'
-import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
+import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation, AlertCircle } from 'lucide-react'
 
-// ── Smart location search (Google Places Autocomplete) ──────────────
+// ── Smart Philippine address parser ─────────────────────────────────────────
+/**
+ * Philippine address hierarchy (from most specific to least):
+ * barangay → city/municipality → province → region
+ *
+ * Google Places types used in PH:
+ *   sublocality_level_1, sublocality → BARANGAY (skip for city)
+ *   locality → sometimes barangay, sometimes city — needs validation
+ *   administrative_area_level_4 → barangay or sitio
+ *   administrative_area_level_3 → city or municipality ✓
+ *   administrative_area_level_2 → province ✓
+ *   administrative_area_level_1 → region (NCR, Region IV-A, etc.)
+ */
+function parsePHAddress(addressComponents) {
+  if (!addressComponents || !addressComponents.length) {
+    return { city: '', province: '' }
+  }
+
+  // Build a map of types → component
+  const byType = {}
+  for (const comp of addressComponents) {
+    for (const t of (comp.types || [])) {
+      if (!byType[t]) byType[t] = comp
+    }
+  }
+
+  const get = (type) => {
+    const c = byType[type]
+    return c ? (c.longText || c.long_name || '') : ''
+  }
+
+  // City: prefer admin_level_3 (city/municipality) over locality
+  // locality in PH is often barangay-level — avoid unless it's the only option
+  const cityLevel3 = get('administrative_area_level_3')
+  const locality   = get('locality')
+  const sublocal   = get('sublocality_level_1') || get('sublocality')
+
+  // Heuristic: if locality === sublocality, locality is a barangay — skip it
+  const localityIsBarangay = locality && sublocal && locality.toLowerCase() === sublocal.toLowerCase()
+
+  let city = ''
+  if (cityLevel3) {
+    city = cityLevel3
+  } else if (locality && !localityIsBarangay) {
+    city = locality
+  }
+
+  // Province: admin_level_2 is almost always province in PH
+  let province = get('administrative_area_level_2')
+
+  // If province is empty, try admin_level_1 (region) but label it clearly
+  if (!province) {
+    const region = get('administrative_area_level_1')
+    // NCR is a region, not a province — treat it specially
+    if (region && !region.toLowerCase().includes('national capital')) {
+      province = region
+    }
+  }
+
+  return { city: city.trim(), province: province.trim() }
+}
+
+// Normalize city names that Google commonly gets wrong in PH
+const PH_CITY_ALIASES = {
+  'dasmarinas': 'Dasmariñas',
+  'dasmarinas city': 'Dasmariñas',
+  'dasmariñas city': 'Dasmariñas',
+  'imus city': 'Imus',
+  'bacoor city': 'Bacoor',
+  'general trias city': 'General Trias',
+  'kawit': 'Kawit',
+  'noveleta': 'Noveleta',
+  'cavite city': 'Cavite City',
+  'tagaytay city': 'Tagaytay',
+  'manila city': 'Manila',
+  'quezon city': 'Quezon City',
+  'makati city': 'Makati',
+  'pasig city': 'Pasig',
+  'taguig city': 'Taguig',
+  'parañaque city': 'Parañaque',
+  'las piñas city': 'Las Piñas',
+  'muntinlupa city': 'Muntinlupa',
+  'marikina city': 'Marikina',
+  'caloocan city': 'Caloocan',
+  'malabon city': 'Malabon',
+  'valenzuela city': 'Valenzuela',
+}
+
+function normalizeCityName(raw) {
+  if (!raw) return ''
+  const key = raw.toLowerCase().trim()
+  return PH_CITY_ALIASES[key] || raw
+}
+
+// ── Google Maps script loader ────────────────────────────────────────────────
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
 function useGoogleMaps() {
@@ -32,12 +126,14 @@ function useGoogleMaps() {
   return ready
 }
 
+// ── LocationSearch component ─────────────────────────────────────────────────
 function LocationSearch({ courtName, city, province, onCourtChange, onCityChange, onProvinceChange }) {
   const [query, setQuery]             = useState(courtName || '')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching]     = useState(false)
   const [gpsLoading, setGpsLoading]   = useState(false)
   const [focused, setFocused]         = useState(false)
+  const [cityOverride, setCityOverride] = useState(false)
   const debounceRef                   = useRef(null)
   const sessionTokenRef               = useRef(null)
   const mapsReady                     = useGoogleMaps()
@@ -79,6 +175,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     onCourtChange(val)
     onCityChange('')
     onProvinceChange('')
+    setCityOverride(false)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
@@ -87,6 +184,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     setQuery(s.name)
     onCourtChange(s.name)
     setSuggestions([])
+    setCityOverride(false)
 
     try {
       const place = new window.google.maps.places.Place({
@@ -94,46 +192,36 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
         requestedLanguage: 'en',
       })
       await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
-      const comps = place.addressComponents || []
 
-      let cityVal = ''
-      let provinceVal = ''
+      const { city: rawCity, province: rawProvince } = parsePHAddress(place.addressComponents || [])
+      const cityVal     = normalizeCityName(rawCity)
+      const provinceVal = rawProvince
 
-      const locality = comps.find(c =>
-        c.types.includes('locality') ||
-        c.types.includes('administrative_area_level_3') ||
-        c.types.includes('sublocality_level_1') ||
-        c.types.includes('sublocality')
-      )
+      console.log('[Location] Parsed address:', {
+        components: (place.addressComponents || []).map(c => ({ types: c.types, text: c.longText || c.long_name })),
+        rawCity, cityVal, provinceVal,
+        formattedAddress: place.formattedAddress
+      })
 
-      const provinceComp = comps.find(c =>
-        c.types.includes('administrative_area_level_2') ||
-        c.types.includes('administrative_area_level_1')
-      )
-
-      cityVal = locality?.longText || locality?.long_name || ''
-      provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
-
+      // If we still couldn't parse a city, fall back to secondary text
       if (!cityVal && s.secondary) {
-        const secondaryParts = s.secondary.split(',').map(p => p.trim())
-        cityVal = secondaryParts[0] || ''
-        provinceVal = secondaryParts[1] || provinceVal
+        const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
+        const fallbackCity = normalizeCityName(parts[0] || '')
+        const fallbackProvince = parts[1] || provinceVal
+        onCityChange(fallbackCity)
+        onProvinceChange(fallbackProvince)
+        if (!fallbackCity) setCityOverride(true)
+      } else {
+        onCityChange(cityVal)
+        onProvinceChange(provinceVal)
+        if (!cityVal) setCityOverride(true)
       }
-
-      if (!cityVal && place.formattedAddress) {
-        const parts = place.formattedAddress.split(',').map(p => p.trim())
-        if (parts.length >= 2) {
-          cityVal = parts[parts.length - 3] || parts[parts.length - 2] || ''
-        }
-      }
-
-      onCityChange(cityVal)
-      onProvinceChange(provinceVal)
 
     } catch (err) {
       console.error('Place details error:', err)
+      // Fallback to secondary text parsing
       const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-      onCityChange(parts[0] || '')
+      onCityChange(normalizeCityName(parts[0] || ''))
       onProvinceChange(parts[1] || '')
     }
 
@@ -148,6 +236,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     onCityChange('')
     onProvinceChange('')
     setSuggestions([])
+    setCityOverride(false)
   }
 
   async function detectGPS() {
@@ -157,35 +246,52 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
       async ({ coords }) => {
         try {
           const res = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`
+            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}&language=en`
           )
           const data = await res.json()
           if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
 
-          let name = '', cityVal = '', provinceVal = ''
+          let name = ''
+          let bestCity = ''
+          let bestProvince = ''
 
           for (const result of data.results) {
-            const c = result.address_components
-            const premise  = c.find(x => x.types.includes('premise'))
-            const estab    = c.find(x => x.types.includes('establishment'))
-            const poi      = c.find(x => x.types.includes('point_of_interest'))
-            const route    = c.find(x => x.types.includes('route'))
-            const locality = c.find(x => x.types.includes('locality'))
-            const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
+            const comps = result.address_components || []
 
-            if (!name) name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
-            if (!cityVal) cityVal = locality?.long_name || ''
-            if (!provinceVal) provinceVal = province?.long_name || ''
+            // Try to find a named venue
+            if (!name) {
+              const premise  = comps.find(x => x.types.includes('premise'))
+              const estab    = comps.find(x => x.types.includes('establishment'))
+              const poi      = comps.find(x => x.types.includes('point_of_interest'))
+              const route    = comps.find(x => x.types.includes('route'))
+              name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
+            }
 
-            if (name && cityVal) break
+            // Parse city/province using smart parser
+            if (!bestCity) {
+              // Build components array in the same format as Places API
+              const fakeComps = comps.map(c => ({
+                types: c.types,
+                longText: c.long_name,
+                long_name: c.long_name,
+              }))
+              const { city: rawCity, province } = parsePHAddress(fakeComps)
+              bestCity = normalizeCityName(rawCity)
+              bestProvince = province
+            }
+
+            if (name && bestCity) break
           }
 
           if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
 
           setQuery(name)
           onCourtChange(name)
-          onCityChange(cityVal)
-          onProvinceChange(provinceVal)
+          onCityChange(bestCity)
+          onProvinceChange(bestProvince)
+          if (!bestCity) setCityOverride(true)
+
+          console.log('[GPS Location]', { name, bestCity, bestProvince })
 
         } catch {
           alert('Could not get location')
@@ -233,6 +339,7 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
         </button>
       </div>
+
       {focused && suggestions.length > 0 && (
         <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
           style={{ background: '#13131f' }}>
@@ -252,19 +359,41 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           ))}
         </div>
       )}
-      {(city || province) && (
-        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
-          {city && (
-            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
-              📍 {city}
-            </span>
-          )}
-          {province && (
-            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
-              🗺️ {province}
-            </span>
+
+      {/* City / Province tags + override input */}
+      {(city || province || cityOverride) && (
+        <div className="px-4 pb-3 pt-1 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {city && (
+              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+                style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+                📍 {city}
+              </span>
+            )}
+            {province && (
+              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+                style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
+                🗺️ {province}
+              </span>
+            )}
+          </div>
+
+          {/* Manual city override — shown when Google fails to detect city */}
+          {cityOverride && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border"
+              style={{ background: 'rgba(255,165,0,0.06)', borderColor: 'rgba(255,165,0,0.2)' }}>
+              <AlertCircle size={12} style={{ color: '#f59e0b' }} className="shrink-0" />
+              <input
+                type="text"
+                placeholder="City/municipality not detected — type it manually"
+                className="flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/30"
+                style={{ caretColor: '#c8ff00' }}
+                onChange={e => {
+                  onCityChange(normalizeCityName(e.target.value))
+                  if (e.target.value) setCityOverride(false)
+                }}
+              />
+            </div>
           )}
         </div>
       )}
@@ -272,6 +401,99 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   )
 }
 
+// ── Opponent Search component ────────────────────────────────────────────────
+function OpponentSearch({ user, taggedUser, onSelect, onClear }) {
+  const [searchQuery, setSearchQuery]   = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching]   = useState(false)
+
+  const searchOpponents = useCallback(async (query) => {
+    if (!query || query.length < 2) return
+    setIsSearching(true)
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username, display_name, city, province')
+      .ilike('username', `%${query}%`)
+      .neq('id', user.id)
+      .limit(5)
+    if (!error) setSearchResults(data || [])
+    setIsSearching(false)
+  }, [user.id])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.length >= 2 && !taggedUser) {
+        searchOpponents(searchQuery)
+      } else if (searchQuery.length === 0) {
+        setSearchResults([])
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery, taggedUser, searchOpponents])
+
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
+        <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
+        <input
+          className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
+          style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
+          placeholder="Tag opponent (username)"
+          value={taggedUser ? `@${taggedUser.username}` : searchQuery}
+          onChange={e => {
+            onClear()
+            setSearchQuery(e.target.value)
+            setSearchResults([])
+          }}
+        />
+        {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
+        {taggedUser && (
+          <button
+            type="button"
+            onClick={() => { onClear(); setSearchQuery(''); setSearchResults([]) }}
+            className="shrink-0 text-red-400">
+            <X size={15} />
+          </button>
+        )}
+      </div>
+
+      {searchResults.length > 0 && !taggedUser && (
+        <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10"
+          style={{ background: '#1a1a2e' }}>
+          {searchResults.map(u => (
+            <button
+              key={u.id}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                onSelect(u)
+                setSearchQuery('')
+                setSearchResults([])
+              }}
+              className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
+            >
+              <div>
+                <span className="font-bold text-white">@{u.username}</span>
+                {u.display_name && (
+                  <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
+                    ({u.display_name})
+                  </span>
+                )}
+              </div>
+              {(u.city || u.province) && (
+                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                  📍 {u.city || u.province}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
 export default function LogGamePage() {
   const { user, profile } = useAuth()
   const navigate = useNavigate()
@@ -291,42 +513,7 @@ export default function LogGamePage() {
     content:    '',
   })
 
-  const [searchQuery, setSearchQuery]   = useState('')
-  const [searchResults, setSearchResults] = useState([])
-  const [taggedUser, setTaggedUser]     = useState(null)
-  const [isSearching, setIsSearching]   = useState(false)
-
-  // ── FIX: was querying from('profiles') which is wrong table
-  // ── Now correctly queries from('users') with correct column names
-  async function searchOpponents(query) {
-    if (!query || query.length < 2) return
-    setIsSearching(true)
-
-    const { data, error } = await supabase
-      .from('users')                                          // ← FIXED: was 'profiles'
-      .select('id, username, display_name, city, province')  // ← FIXED: was 'full_name'
-      .ilike('username', `%${query}%`)
-      .neq('id', user.id)
-      .limit(5)
-
-    if (error) {
-      console.error('Search error:', error)
-    } else {
-      setSearchResults(data || [])
-    }
-    setIsSearching(false)
-  }
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery.length >= 2 && !taggedUser) {
-        searchOpponents(searchQuery)
-      } else if (searchQuery.length === 0) {
-        setSearchResults([])
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchQuery, taggedUser])
+  const [taggedUser, setTaggedUser] = useState(null)
 
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
@@ -373,7 +560,7 @@ export default function LogGamePage() {
         ? await uploadMedia()
         : { urls: [], types: [] }
 
-      // ========== 1. INSERT YOUR GAME ==========
+      // ── 1. INSERT GAME ──────────────────────────────────────────────────
       const { data: game, error: gameError } = await supabase.from('games').insert([{
         user_id:            user.id,
         sport:              formData.sport,
@@ -383,53 +570,16 @@ export default function LogGamePage() {
         result:             formData.result,
         score:              formData.score,
         intensity:          formData.intensity,
-        opponent_name:      taggedUser ? taggedUser.username : searchQuery,
+        opponent_name:      taggedUser ? taggedUser.username : '',
         tagged_opponent_id: taggedUser?.id || null,
         created_at:         new Date().toISOString(),
       }]).select().single()
 
-      if (gameError) {
-        console.error('❌ Game insert error:', gameError)
-        throw gameError
-      }
-      console.log('✅ Your game recorded:', { id: game.id, result: game.result, opponent: game.opponent_name })
+      if (gameError) throw gameError
 
-      // ========== 2. INSERT OPPONENT'S GAME ==========
-      let opponentGame = null
-      if (taggedUser && formData.result === 'win') {
-        console.log('🔄 Recording opponent loss for:', taggedUser.username)
-
-        const opponentGameData = {
-          user_id:            taggedUser.id,
-          sport:              formData.sport,
-          court_name:         formData.court_name,
-          city:               formData.city,
-          province:           formData.province,
-          result:             'loss',
-          score:              formData.score,
-          intensity:          formData.intensity,
-          opponent_name:      profile?.username || 'opponent',
-          tagged_opponent_id: user.id,
-          created_at:         new Date().toISOString(),
-        }
-
-        const { data: oppData, error: opponentError } = await supabase
-          .from('games')
-          .insert([opponentGameData])
-          .select()
-
-        if (opponentError) {
-          console.error('❌ Opponent sync FAILED:', opponentError)
-          alert('⚠️ Match recorded but opponent stats failed to update.')
-        } else {
-          opponentGame = oppData[0]
-          console.log('✅ Opponent loss recorded:', { id: opponentGame.id })
-        }
-      }
-
-      // ========== 3. CREATE POST ==========
+      // ── 2. CREATE POST ──────────────────────────────────────────────────
       const sport    = SPORTS.find(s => s.id === formData.sport)
-      const opponent = taggedUser ? `@${taggedUser.username}` : searchQuery || 'Open Play'
+      const opponent = taggedUser ? `@${taggedUser.username}` : 'Open Play'
       const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
 
       const { data: newPost, error: postError } = await supabase.from('posts').insert([{
@@ -446,13 +596,9 @@ export default function LogGamePage() {
         inserted_at:   new Date().toISOString(),
       }]).select().single()
 
-      if (postError) {
-        console.warn('⚠️ Feed post failed:', postError.message)
-      } else {
-        console.log('✅ Post created:', newPost.id)
-      }
+      if (postError) console.warn('⚠️ Feed post failed:', postError.message)
 
-      // ========== 4. SEND NOTIFICATIONS ==========
+      // ── 3. NOTIFICATIONS ────────────────────────────────────────────────
       const myUsername = profile?.username || 'user'
 
       if (taggedUser && formData.result === 'win') {
@@ -465,20 +611,15 @@ export default function LogGamePage() {
         }).catch(err => console.error('Notification error:', err))
       }
 
-      const caption = formData.content.trim()
-      if (caption.includes('@') && newPost) {
+      if (formData.content?.includes('@') && newPost) {
         await notifyMentions({
-          text:     caption,
+          text:     formData.content.trim(),
           fromUser: { id: user.id, username: myUsername },
           postId:   newPost.id,
         }).catch(err => console.error('Mention notification error:', err))
       }
 
-      // ========== 5. SUCCESS ==========
-      const syncStatus = opponentGame
-        ? '✅ Opponent stats updated'
-        : (taggedUser && formData.result === 'win' ? '⚠️ Opponent stats failed to update' : '')
-      alert(`✅ Match recorded successfully!${syncStatus ? '\n\n' + syncStatus : ''}`)
+      alert(`✅ Match recorded!\n📍 Location: ${formData.city || 'unknown city'}${formData.province ? `, ${formData.province}` : ''}`)
       navigate('/')
 
     } catch (err) {
@@ -502,6 +643,8 @@ export default function LogGamePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 space-y-5">
+
+        {/* Sport selector */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {SPORTS.map(s => (
             <button
@@ -520,6 +663,7 @@ export default function LogGamePage() {
           ))}
         </div>
 
+        {/* Location */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
@@ -534,65 +678,21 @@ export default function LogGamePage() {
           />
         </div>
 
+        {/* Match details */}
         <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="px-4 pt-4 pb-2 border-b border-white/5">
             <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
           </div>
-          <div className="relative">
-            <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-              <Users size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
-              <input
-                className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-                style={{ color: taggedUser ? '#c8ff00' : '#ffffff', caretColor: '#c8ff00' }}
-                placeholder="Tag opponent (username)"
-                value={taggedUser ? `@${taggedUser.username}` : searchQuery}
-                onChange={e => {
-                  setTaggedUser(null)
-                  setSearchQuery(e.target.value)
-                  setSearchResults([])
-                }}
-              />
-              {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
-              {taggedUser && (
-                <button type="button" onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]) }} className="shrink-0 text-red-400">
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-            {searchResults.length > 0 && !taggedUser && (
-              <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ background: '#1a1a2e' }}>
-                {searchResults.map(u => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      setTaggedUser(u)
-                      setSearchQuery('')
-                      setSearchResults([])
-                    }}
-                    className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
-                  >
-                    <div>
-                      <span className="font-bold text-white">@{u.username}</span>
-                      {/* FIXED: was u.full_name, now u.display_name */}
-                      {u.display_name && (
-                        <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
-                          ({u.display_name})
-                        </span>
-                      )}
-                    </div>
-                    {(u.city || u.province) && (
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                        📍 {u.city || u.province}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
 
+          {/* Opponent Search */}
+          <OpponentSearch
+            user={user}
+            taggedUser={taggedUser}
+            onSelect={setTaggedUser}
+            onClear={() => setTaggedUser(null)}
+          />
+
+          {/* Score */}
           <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
             <Search size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
             <input
@@ -604,6 +704,7 @@ export default function LogGamePage() {
             />
           </div>
 
+          {/* Caption */}
           <div className="px-4 py-3">
             <textarea
               className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
@@ -616,6 +717,7 @@ export default function LogGamePage() {
           </div>
         </div>
 
+        {/* Result */}
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
           <div className="grid grid-cols-2 gap-3">
@@ -647,6 +749,7 @@ export default function LogGamePage() {
           )}
         </div>
 
+        {/* Intensity */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
@@ -676,6 +779,7 @@ export default function LogGamePage() {
           </div>
         </div>
 
+        {/* Media */}
         <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
           <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
           {mediaPreviews.length > 0 && (
@@ -710,6 +814,7 @@ export default function LogGamePage() {
           <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
         </div>
 
+        {/* Submit */}
         <button
           type="submit"
           disabled={loading}

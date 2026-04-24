@@ -2,26 +2,28 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import { Shield, AlertTriangle, Eye, Trash2, Edit2, PlusCircle, Loader2, Users } from 'lucide-react'
+import { Shield, AlertTriangle, Eye, Trash2, Edit2, PlusCircle, Loader2, Users, RotateCcw, Trophy, CheckCircle } from 'lucide-react'
 
 export default function AdminPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [auditLogs, setAuditLogs] = useState([])
-  const [admins, setAdmins] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [auditLogs, setAuditLogs]     = useState([])
+  const [admins, setAdmins]           = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [isAdmin, setIsAdmin]         = useState(false)
   const [expandedLog, setExpandedLog] = useState(null)
+
+  // Leaderboard reset state
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resetLoading, setResetLoading]         = useState(false)
+  const [resetResult, setResetResult]           = useState(null)
 
   useEffect(() => {
     checkAdmin()
   }, [user])
 
   async function checkAdmin() {
-    if (!user) {
-      navigate('/login')
-      return
-    }
+    if (!user) { navigate('/login'); return }
 
     const { data: userData } = await supabase
       .from('users')
@@ -45,7 +47,6 @@ export default function AdminPage() {
       .from('users')
       .select('username, display_name, avatar_url')
       .eq('role', 'admin')
-    
     setAdmins(data || [])
   }
 
@@ -56,26 +57,45 @@ export default function AdminPage() {
       .select('*, users!game_audit_log_user_id_fkey(username, display_name)')
       .order('timestamp', { ascending: false })
       .limit(50)
-
     setAuditLogs(data || [])
     setLoading(false)
+  }
+
+  async function handleResetLeaderboard() {
+    setResetLoading(true)
+    setResetResult(null)
+    try {
+      const { data, error } = await supabase.rpc('admin_reset_leaderboard')
+      if (error) throw error
+      if (data?.success) {
+        setResetResult({ ok: true, message: `✅ Done! Cleared all game records and reset stats on ${data.users_reset} users.` })
+      } else {
+        setResetResult({ ok: false, message: `❌ ${data?.error || 'Unknown error'}` })
+      }
+    } catch (err) {
+      setResetResult({ ok: false, message: `❌ ${err.message}` })
+    } finally {
+      setResetLoading(false)
+      setShowResetConfirm(false)
+      await loadAuditLogs()
+    }
   }
 
   const getActionIcon = (action) => {
     switch (action) {
       case 'DELETE': return <Trash2 size={14} className="text-spark" />
-      case 'EDIT': return <Edit2 size={14} className="text-accent" />
+      case 'EDIT':   return <Edit2 size={14} className="text-accent" />
       case 'CREATE': return <PlusCircle size={14} className="text-green-500" />
-      default: return <Eye size={14} className="text-ink-500" />
+      default:       return <Eye size={14} className="text-ink-500" />
     }
   }
 
   const getActionColor = (action) => {
     switch (action) {
       case 'DELETE': return 'bg-spark/10 border-spark/20 text-spark'
-      case 'EDIT': return 'bg-accent/10 border-accent/20 text-accent'
+      case 'EDIT':   return 'bg-accent/10 border-accent/20 text-accent'
       case 'CREATE': return 'bg-green-500/10 border-green-500/20 text-green-500'
-      default: return 'bg-ink-700/50 border-white/10 text-ink-400'
+      default:       return 'bg-ink-700/50 border-white/10 text-ink-400'
     }
   }
 
@@ -83,6 +103,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-ink-900 text-ink-50 pb-28">
+
       {/* Header */}
       <div className="px-5 pt-14 pb-6">
         <div className="flex items-center gap-2 mb-2">
@@ -102,7 +123,7 @@ export default function AdminPage() {
           <div className="flex gap-3 flex-wrap">
             {admins.map(admin => (
               <div key={admin.username} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-accent/10 border border-accent/20">
-                <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-xs font-black">
+                <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-xs font-black text-accent">
                   {admin.username.charAt(0).toUpperCase()}
                 </div>
                 <div>
@@ -117,6 +138,74 @@ export default function AdminPage() {
         </div>
       </div>
 
+      {/* ── LEADERBOARD RESET SECTION ── */}
+      <div className="px-5 mb-6">
+        <div className="glass rounded-2xl border border-white/10 p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Trophy size={16} className="text-accent" />
+            <h2 className="text-sm font-bold uppercase tracking-widest text-ink-400">Leaderboard Controls</h2>
+          </div>
+          <p className="text-xs text-ink-600 mb-4 ml-6">
+            Wipes all game records and resets every user's win count, XP, and trust score back to zero. Posts, events, and profiles are untouched.
+          </p>
+
+          {/* Result banner */}
+          {resetResult && (
+            <div className={`mb-4 px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+              resetResult.ok
+                ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                : 'bg-spark/10 border border-spark/20 text-spark'
+            }`}>
+              {resetResult.ok ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+              {resetResult.message}
+            </div>
+          )}
+
+          {/* Confirm dialog */}
+          {showResetConfirm ? (
+            <div className="rounded-2xl border border-spark/30 p-4" style={{ background: 'rgba(255,77,0,0.06)' }}>
+              <div className="flex items-start gap-2 mb-3">
+                <AlertTriangle size={16} className="text-spark shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-black text-white mb-1">Are you absolutely sure?</p>
+                  <p className="text-xs text-ink-500 leading-relaxed">
+                    This will permanently delete <strong className="text-white">all game records</strong> and reset rankings for every user. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowResetConfirm(false); setResetResult(null) }}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black uppercase border border-white/10 text-ink-400 hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleResetLeaderboard}
+                  disabled={resetLoading}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-black uppercase text-white flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+                  style={{ background: '#ff4d4d' }}
+                >
+                  {resetLoading
+                    ? <><Loader2 size={13} className="animate-spin" /> Resetting…</>
+                    : <><RotateCcw size={13} /> Yes, Reset Now</>
+                  }
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setShowResetConfirm(true); setResetResult(null) }}
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest border border-spark/30 transition-all hover:bg-spark/10 active:scale-95"
+              style={{ color: '#ff6b6b', background: 'rgba(255,77,0,0.06)' }}
+            >
+              <RotateCcw size={15} />
+              Reset Leaderboard
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Audit Logs */}
       <div className="px-5">
         <div className="flex items-center justify-between mb-4">
@@ -124,7 +213,7 @@ export default function AdminPage() {
             <Eye size={14} className="text-accent" />
             Recent Activity
           </h2>
-          <button 
+          <button
             onClick={loadAuditLogs}
             className="text-[10px] font-bold text-ink-500 hover:text-accent transition-colors"
           >
@@ -145,7 +234,6 @@ export default function AdminPage() {
             {auditLogs.map((log) => (
               <div key={log.id} className="glass rounded-xl border border-white/10 overflow-hidden">
                 <div className="p-4">
-                  {/* Header */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <div className={`p-1.5 rounded-lg ${getActionColor(log.action)}`}>
@@ -161,10 +249,9 @@ export default function AdminPage() {
                     </span>
                   </div>
 
-                  {/* Content */}
                   <div className="text-xs text-ink-400 space-y-1">
                     <p>Game ID: <span className="text-ink-300 font-mono text-[10px]">{log.game_id}</span></p>
-                    
+
                     {log.old_data && (
                       <button
                         onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
@@ -173,7 +260,7 @@ export default function AdminPage() {
                         {expandedLog === log.id ? '▼ Hide Details' : '▶ View Details'}
                       </button>
                     )}
-                    
+
                     {expandedLog === log.id && log.old_data && (
                       <div className="mt-3 p-3 rounded-lg bg-black/30 text-[10px] overflow-x-auto">
                         <pre className="whitespace-pre-wrap font-mono">
