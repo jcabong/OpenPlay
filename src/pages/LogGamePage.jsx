@@ -3,110 +3,10 @@ import { supabase, SPORTS } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { notifyMentions, sendNotification } from '../hooks/useNotifications'
-import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation, AlertCircle } from 'lucide-react'
+import { MapPin, Users, Search, Share2, Loader2, X, Image, Zap, Navigation } from 'lucide-react'
+import PostGameShareCard from '../components/PostGameShareCard'
 
-// ── Smart Philippine address parser ─────────────────────────────────────────
-/**
- * Philippine address hierarchy (from most specific to least):
- * barangay → city/municipality → province → region
- *
- * Google Places types used in PH:
- *   sublocality_level_1, sublocality → BARANGAY (skip for city)
- *   locality → sometimes barangay, sometimes city — needs validation
- *   administrative_area_level_4 → barangay or sitio
- *   administrative_area_level_3 → city or municipality ✓
- *   administrative_area_level_2 → province ✓
- *   administrative_area_level_1 → region (NCR, Region IV-A, etc.)
- */
-function parsePHAddress(addressComponents) {
-  if (!addressComponents || !addressComponents.length) {
-    return { city: '', province: '' }
-  }
-
-  // Build a map of types → component
-  const byType = {}
-  for (const comp of addressComponents) {
-    for (const t of (comp.types || [])) {
-      if (!byType[t]) byType[t] = comp
-    }
-  }
-
-  const get = (type) => {
-    const c = byType[type]
-    return c ? (c.longText || c.long_name || '') : ''
-  }
-
-  // Province: admin_level_2 is ALWAYS province in PH — resolve this FIRST
-  // so we can avoid accidentally using it as city
-  let province = get('administrative_area_level_2')
-
-  // If province is empty, try admin_level_1 (region) but label it clearly
-  if (!province) {
-    const region = get('administrative_area_level_1')
-    // NCR is a region, not a province — treat it specially
-    if (region && !region.toLowerCase().includes('national capital')) {
-      province = region
-    }
-  }
-
-  // City: strict priority order — admin_level_3 is city/municipality in PH
-  // locality can be barangay-level in PH, only use if different from province
-  const cityLevel3  = get('administrative_area_level_3')
-  const cityLevel4  = get('administrative_area_level_4')
-  const locality    = get('locality')
-  const sublocal    = get('sublocality_level_1') || get('sublocality')
-
-  // Heuristic: if locality === sublocality, locality is a barangay — skip it
-  const localityIsBarangay = locality && sublocal && locality.toLowerCase() === sublocal.toLowerCase()
-
-  // Never use province value as city
-  const isProvince = (val) => val && province && val.toLowerCase().trim() === province.toLowerCase().trim()
-
-  let city = ''
-  if (cityLevel3 && !isProvince(cityLevel3)) {
-    city = cityLevel3
-  } else if (cityLevel4 && !isProvince(cityLevel4)) {
-    city = cityLevel4
-  } else if (locality && !localityIsBarangay && !isProvince(locality)) {
-    city = locality
-  }
-
-  return { city: city.trim(), province: province.trim() }
-}
-
-// Normalize city names that Google commonly gets wrong in PH
-const PH_CITY_ALIASES = {
-  'dasmarinas': 'Dasmariñas',
-  'dasmarinas city': 'Dasmariñas',
-  'dasmariñas city': 'Dasmariñas',
-  'imus city': 'Imus',
-  'bacoor city': 'Bacoor',
-  'general trias city': 'General Trias',
-  'kawit': 'Kawit',
-  'noveleta': 'Noveleta',
-  'cavite city': 'Cavite City',
-  'tagaytay city': 'Tagaytay',
-  'manila city': 'Manila',
-  'quezon city': 'Quezon City',
-  'makati city': 'Makati',
-  'pasig city': 'Pasig',
-  'taguig city': 'Taguig',
-  'parañaque city': 'Parañaque',
-  'las piñas city': 'Las Piñas',
-  'muntinlupa city': 'Muntinlupa',
-  'marikina city': 'Marikina',
-  'caloocan city': 'Caloocan',
-  'malabon city': 'Malabon',
-  'valenzuela city': 'Valenzuela',
-}
-
-function normalizeCityName(raw) {
-  if (!raw) return ''
-  const key = raw.toLowerCase().trim()
-  return PH_CITY_ALIASES[key] || raw
-}
-
-// ── Google Maps script loader ────────────────────────────────────────────────
+// ── Smart location search (Google Places Autocomplete) ──────────────
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY
 
 function useGoogleMaps() {
@@ -133,14 +33,12 @@ function useGoogleMaps() {
   return ready
 }
 
-// ── LocationSearch component ─────────────────────────────────────────────────
 function LocationSearch({ courtName, city, province, onCourtChange, onCityChange, onProvinceChange }) {
   const [query, setQuery]             = useState(courtName || '')
   const [suggestions, setSuggestions] = useState([])
   const [searching, setSearching]     = useState(false)
   const [gpsLoading, setGpsLoading]   = useState(false)
   const [focused, setFocused]         = useState(false)
-  const [cityOverride, setCityOverride] = useState(false)
   const debounceRef                   = useRef(null)
   const sessionTokenRef               = useRef(null)
   const mapsReady                     = useGoogleMaps()
@@ -182,7 +80,6 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     onCourtChange(val)
     onCityChange('')
     onProvinceChange('')
-    setCityOverride(false)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(val), 300)
   }
@@ -191,62 +88,47 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     setQuery(s.name)
     onCourtChange(s.name)
     setSuggestions([])
-    setCityOverride(false)
-
     try {
-      const place = new window.google.maps.places.Place({
-        id: s.placeId,
-        requestedLanguage: 'en',
-      })
+      const place = new window.google.maps.places.Place({ id: s.placeId, requestedLanguage: 'en' })
       await place.fetchFields({ fields: ['addressComponents', 'formattedAddress'] })
-
-      const { city: rawCity, province: rawProvince } = parsePHAddress(place.addressComponents || [])
-      const cityVal     = normalizeCityName(rawCity)
-      const provinceVal = rawProvince
-
-      console.log('[Location] Parsed address:', {
-        components: (place.addressComponents || []).map(c => ({ types: c.types, text: c.longText || c.long_name })),
-        rawCity, cityVal, provinceVal,
-        formattedAddress: place.formattedAddress
-      })
-
-      // If we still couldn't parse a city, fall back to secondary text
-      // but NEVER use the province value as the city
+      const comps = place.addressComponents || []
+      let cityVal = '', provinceVal = ''
+      const locality = comps.find(c =>
+        c.types.includes('locality') ||
+        c.types.includes('administrative_area_level_3') ||
+        c.types.includes('sublocality_level_1') ||
+        c.types.includes('sublocality')
+      )
+      const provinceComp = comps.find(c =>
+        c.types.includes('administrative_area_level_2') ||
+        c.types.includes('administrative_area_level_1')
+      )
+      cityVal     = locality?.longText     || locality?.long_name     || ''
+      provinceVal = provinceComp?.longText || provinceComp?.long_name || ''
       if (!cityVal && s.secondary) {
-        const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-        const candidate = normalizeCityName(parts[0] || '')
-        // Only use candidate if it's different from the province
-        const fallbackCity = (candidate && candidate.toLowerCase() !== provinceVal.toLowerCase()) ? candidate : ''
-        const fallbackProvince = parts[1] || provinceVal
-        onCityChange(fallbackCity)
-        onProvinceChange(fallbackProvince)
-        if (!fallbackCity) setCityOverride(true)
-      } else {
-        onCityChange(cityVal)
-        onProvinceChange(provinceVal)
-        if (!cityVal) setCityOverride(true)
+        const parts = s.secondary.split(',').map(p => p.trim())
+        cityVal     = parts[0] || ''
+        provinceVal = parts[1] || provinceVal
       }
-
+      if (!cityVal && place.formattedAddress) {
+        const parts = place.formattedAddress.split(',').map(p => p.trim())
+        if (parts.length >= 2) cityVal = parts[parts.length - 3] || parts[parts.length - 2] || ''
+      }
+      onCityChange(cityVal)
+      onProvinceChange(provinceVal)
     } catch (err) {
       console.error('Place details error:', err)
-      // Fallback to secondary text parsing
       const parts = s.secondary.split(',').map(p => p.trim()).filter(Boolean)
-      onCityChange(normalizeCityName(parts[0] || ''))
+      onCityChange(parts[0] || '')
       onProvinceChange(parts[1] || '')
     }
-
     if (window.google?.maps?.places) {
       sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken()
     }
   }
 
   function clearLocation() {
-    setQuery('')
-    onCourtChange('')
-    onCityChange('')
-    onProvinceChange('')
-    setSuggestions([])
-    setCityOverride(false)
+    setQuery(''); onCourtChange(''); onCityChange(''); onProvinceChange(''); setSuggestions([])
   }
 
   async function detectGPS() {
@@ -255,59 +137,30 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         try {
-          const res = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}&language=en`
-          )
+          const res  = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.latitude},${coords.longitude}&key=${GOOGLE_MAPS_KEY}`)
           const data = await res.json()
           if (!data.results?.length) { alert('Could not get location'); setGpsLoading(false); return }
-
-          let name = ''
-          let bestCity = ''
-          let bestProvince = ''
-
+          let name = '', cityVal = '', provinceVal = ''
           for (const result of data.results) {
-            const comps = result.address_components || []
-
-            // Try to find a named venue
-            if (!name) {
-              const premise  = comps.find(x => x.types.includes('premise'))
-              const estab    = comps.find(x => x.types.includes('establishment'))
-              const poi      = comps.find(x => x.types.includes('point_of_interest'))
-              const route    = comps.find(x => x.types.includes('route'))
-              name = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
-            }
-
-            // Parse city/province using smart parser
-            if (!bestCity) {
-              // Build components array in the same format as Places API
-              const fakeComps = comps.map(c => ({
-                types: c.types,
-                longText: c.long_name,
-                long_name: c.long_name,
-              }))
-              const { city: rawCity, province } = parsePHAddress(fakeComps)
-              bestCity = normalizeCityName(rawCity)
-              bestProvince = province
-            }
-
-            if (name && bestCity) break
+            const c        = result.address_components
+            const premise  = c.find(x => x.types.includes('premise'))
+            const estab    = c.find(x => x.types.includes('establishment'))
+            const poi      = c.find(x => x.types.includes('point_of_interest'))
+            const route    = c.find(x => x.types.includes('route'))
+            const locality = c.find(x => x.types.includes('locality'))
+            const province = c.find(x => x.types.includes('administrative_area_level_2') || x.types.includes('administrative_area_level_1'))
+            if (!name)        name        = premise?.long_name || estab?.long_name || poi?.long_name || route?.long_name || ''
+            if (!cityVal)     cityVal     = locality?.long_name || ''
+            if (!provinceVal) provinceVal = province?.long_name || ''
+            if (name && cityVal) break
           }
-
           if (!name) name = data.results[0].formatted_address.split(',')[0].trim()
-
           setQuery(name)
           onCourtChange(name)
-          onCityChange(bestCity)
-          onProvinceChange(bestProvince)
-          if (!bestCity) setCityOverride(true)
-
-          console.log('[GPS Location]', { name, bestCity, bestProvince })
-
-        } catch {
-          alert('Could not get location')
-        } finally {
-          setGpsLoading(false)
-        }
+          onCityChange(cityVal)
+          onProvinceChange(provinceVal)
+        } catch { alert('Could not get location') }
+        finally  { setGpsLoading(false) }
       },
       (err) => {
         setGpsLoading(false)
@@ -339,27 +192,17 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
             <X size={14} />
           </button>
         )}
-        <button
-          type="button"
-          onClick={detectGPS}
-          disabled={gpsLoading}
+        <button type="button" onClick={detectGPS} disabled={gpsLoading}
           className="shrink-0 p-1.5 rounded-lg transition-colors hover:bg-white/5"
-          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}
-        >
+          style={{ color: gpsLoading ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
           {gpsLoading ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
         </button>
       </div>
-
       {focused && suggestions.length > 0 && (
-        <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl"
-          style={{ background: '#13131f' }}>
+        <div className="mx-3 mb-2 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{ background: '#13131f' }}>
           {suggestions.map((s, i) => (
-            <button
-              key={i}
-              type="button"
-              onMouseDown={() => pickSuggestion(s)}
-              className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors"
-            >
+            <button key={i} type="button" onMouseDown={() => pickSuggestion(s)}
+              className="w-full text-left px-4 py-3 flex items-start gap-3 border-b border-white/5 last:border-none hover:bg-white/5 transition-colors">
               <MapPin size={13} className="shrink-0 mt-0.5" style={{ color: '#c8ff00', opacity: 0.7 }} />
               <div>
                 <p className="text-xs font-bold text-white leading-tight">{s.name}</p>
@@ -369,41 +212,19 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
           ))}
         </div>
       )}
-
-      {/* City / Province tags + override input */}
-      {(city || province || cityOverride) && (
-        <div className="px-4 pb-3 pt-1 space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            {city && (
-              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-                style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
-                📍 {city}
-              </span>
-            )}
-            {province && (
-              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
-                style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
-                🗺️ {province}
-              </span>
-            )}
-          </div>
-
-          {/* Manual city override — shown when Google fails to detect city */}
-          {cityOverride && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border"
-              style={{ background: 'rgba(255,165,0,0.06)', borderColor: 'rgba(255,165,0,0.2)' }}>
-              <AlertCircle size={12} style={{ color: '#f59e0b' }} className="shrink-0" />
-              <input
-                type="text"
-                placeholder="City/municipality not detected — type it manually"
-                className="flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/30"
-                style={{ caretColor: '#c8ff00' }}
-                onChange={e => {
-                  onCityChange(normalizeCityName(e.target.value))
-                  if (e.target.value) setCityOverride(false)
-                }}
-              />
-            </div>
+      {(city || province) && (
+        <div className="px-4 pb-2 flex items-center gap-2 flex-wrap">
+          {city && (
+            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(200,255,0,0.1)', color: '#c8ff00' }}>
+              📍 {city}
+            </span>
+          )}
+          {province && (
+            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(200,255,0,0.06)', color: 'rgba(200,255,0,0.7)' }}>
+              🗺️ {province}
+            </span>
           )}
         </div>
       )}
@@ -411,35 +232,33 @@ function LocationSearch({ courtName, city, province, onCourtChange, onCityChange
   )
 }
 
-// ── Opponent Search component ────────────────────────────────────────────────
-function OpponentSearch({ user, taggedUser, onSelect, onClear }) {
+// ── Opponent search sub-component ─────────────────────────────────────────────
+function OpponentSearch({ user, taggedUser, setTaggedUser }) {
   const [searchQuery, setSearchQuery]   = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [isSearching, setIsSearching]   = useState(false)
 
-  const searchOpponents = useCallback(async (query) => {
-    if (!query || query.length < 2) return
+  const search = useCallback(async (q) => {
+    if (!q || q.length < 2) { setSearchResults([]); return }
     setIsSearching(true)
+    // ✅ FIXED: query `users` table with `display_name` (not `profiles` / `full_name`)
     const { data, error } = await supabase
       .from('users')
-      .select('id, username, display_name, city, province')
-      .ilike('username', `%${query}%`)
+      .select('id, username, display_name, city, avatar_url, avatar_type')
+      .ilike('username', `%${q}%`)
       .neq('id', user.id)
-      .limit(5)
+      .limit(6)
     if (!error) setSearchResults(data || [])
     setIsSearching(false)
   }, [user.id])
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchQuery.length >= 2 && !taggedUser) {
-        searchOpponents(searchQuery)
-      } else if (searchQuery.length === 0) {
-        setSearchResults([])
-      }
+      if (searchQuery.length >= 2 && !taggedUser) search(searchQuery)
+      else if (!searchQuery) setSearchResults([])
     }, 300)
     return () => clearTimeout(timer)
-  }, [searchQuery, taggedUser, searchOpponents])
+  }, [searchQuery, taggedUser, search])
 
   return (
     <div className="relative">
@@ -451,21 +270,39 @@ function OpponentSearch({ user, taggedUser, onSelect, onClear }) {
           placeholder="Tag opponent (username)"
           value={taggedUser ? `@${taggedUser.username}` : searchQuery}
           onChange={e => {
-            onClear()
+            setTaggedUser(null)
             setSearchQuery(e.target.value)
             setSearchResults([])
           }}
         />
         {isSearching && <Loader2 size={13} className="animate-spin shrink-0" style={{ color: 'rgba(255,255,255,0.4)' }} />}
         {taggedUser && (
-          <button
-            type="button"
-            onClick={() => { onClear(); setSearchQuery(''); setSearchResults([]) }}
+          <button type="button"
+            onClick={() => { setTaggedUser(null); setSearchQuery(''); setSearchResults([]) }}
             className="shrink-0 text-red-400">
             <X size={15} />
           </button>
         )}
       </div>
+
+      {/* Tagged user avatar preview */}
+      {taggedUser && (
+        <div className="px-4 py-2 flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0">
+            {taggedUser.avatar_url && taggedUser.avatar_type !== 'initials' ? (
+              <img src={taggedUser.avatar_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-[9px] font-black"
+                style={{ background: '#C8FF00', color: '#0a0a0f' }}>
+                {taggedUser.username.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+          <span className="text-[10px] font-black" style={{ color: '#c8ff00' }}>
+            @{taggedUser.username} tagged
+          </span>
+        </div>
+      )}
 
       {searchResults.length > 0 && !taggedUser && (
         <div className="absolute z-50 w-full mt-1 rounded-2xl overflow-hidden shadow-2xl border border-white/10"
@@ -476,25 +313,36 @@ function OpponentSearch({ user, taggedUser, onSelect, onClear }) {
               type="button"
               onMouseDown={(e) => {
                 e.preventDefault()
-                onSelect(u)
+                setTaggedUser(u)
                 setSearchQuery('')
                 setSearchResults([])
               }}
-              className="w-full text-left px-4 py-3 text-sm flex items-center justify-between border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
+              className="w-full text-left px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-none transition-colors hover:bg-white/10"
             >
-              <div>
-                <span className="font-bold text-white">@{u.username}</span>
-                {u.display_name && (
-                  <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
-                    ({u.display_name})
-                  </span>
+              {/* Avatar in dropdown */}
+              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
+                {u.avatar_url && u.avatar_type !== 'initials' ? (
+                  <img src={u.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-xs font-black"
+                    style={{ background: '#C8FF00', color: '#0a0a0f' }}>
+                    {u.username.charAt(0).toUpperCase()}
+                  </div>
                 )}
               </div>
-              {(u.city || u.province) && (
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                  📍 {u.city || u.province}
-                </span>
-              )}
+              <div className="flex-1 min-w-0">
+                <span className="font-bold text-white text-sm">@{u.username}</span>
+                {u.display_name && u.display_name !== u.username && (
+                  <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
+                    {u.display_name}
+                  </span>
+                )}
+                {u.city && (
+                  <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                    📍 {u.city}
+                  </p>
+                )}
+              </div>
             </button>
           ))}
         </div>
@@ -503,7 +351,7 @@ function OpponentSearch({ user, taggedUser, onSelect, onClear }) {
   )
 }
 
-// ── Main Page ────────────────────────────────────────────────────────────────
+// ── Main page ──────────────────────────────────────────────────────────────────
 export default function LogGamePage() {
   const { user, profile } = useAuth()
   const navigate = useNavigate()
@@ -525,12 +373,17 @@ export default function LogGamePage() {
 
   const [taggedUser, setTaggedUser] = useState(null)
 
+  // Post-game share card state
+  const [shareCardData, setShareCardData] = useState(null)
+
   function handleMediaSelect(e) {
     const files = Array.from(e.target.files)
     setMediaFiles(prev => [...prev, ...files].slice(0, 6))
     files.forEach(file => {
       const url = URL.createObjectURL(file)
-      setMediaPreviews(prev => [...prev, { url, type: file.type.startsWith('video') ? 'video' : 'image' }])
+      setMediaPreviews(prev => [...prev, {
+        url, type: file.type.startsWith('video') ? 'video' : 'image'
+      }])
     })
   }
 
@@ -542,7 +395,7 @@ export default function LogGamePage() {
   async function uploadMedia() {
     const urls = [], types = []
     for (const file of mediaFiles) {
-      const ext = file.name.split('.').pop()
+      const ext  = file.name.split('.').pop()
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       const { error } = await supabase.storage.from('openplay-media').upload(path, file)
       if (!error) {
@@ -570,7 +423,7 @@ export default function LogGamePage() {
         ? await uploadMedia()
         : { urls: [], types: [] }
 
-      // ── 1. INSERT GAME ──────────────────────────────────────────────────
+      // ── 1. Insert your game ──────────────────────────────────────────────
       const { data: game, error: gameError } = await supabase.from('games').insert([{
         user_id:            user.id,
         sport:              formData.sport,
@@ -587,10 +440,28 @@ export default function LogGamePage() {
 
       if (gameError) throw gameError
 
-      // ── 2. CREATE POST ──────────────────────────────────────────────────
+      // ── 2. Insert opponent's mirror loss ────────────────────────────────
+      if (taggedUser && formData.result === 'win') {
+        const { error: opponentError } = await supabase.from('games').insert([{
+          user_id:            taggedUser.id,
+          sport:              formData.sport,
+          court_name:         formData.court_name,
+          city:               formData.city,
+          province:           formData.province,
+          result:             'loss',
+          score:              formData.score,
+          intensity:          formData.intensity,
+          opponent_name:      profile?.username || 'opponent',
+          tagged_opponent_id: user.id,
+          created_at:         new Date().toISOString(),
+        }])
+        if (opponentError) console.error('Opponent sync failed:', opponentError)
+      }
+
+      // ── 3. Create feed post ──────────────────────────────────────────────
       const sport    = SPORTS.find(s => s.id === formData.sport)
       const opponent = taggedUser ? `@${taggedUser.username}` : 'Open Play'
-      const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match at ${formData.court_name || 'the courts'}. Result: ${formData.result.toUpperCase()} (${formData.score || '—'}). Vs: ${opponent}`
+      const autoContent = `${sport?.emoji} Just logged a ${sport?.label} match${formData.court_name ? ` at ${formData.court_name}` : ''}. Result: ${formData.result.toUpperCase()}${formData.score ? ` (${formData.score})` : ''}. Vs: ${opponent}`
 
       const { data: newPost, error: postError } = await supabase.from('posts').insert([{
         author_id:     user.id,
@@ -606,11 +477,10 @@ export default function LogGamePage() {
         inserted_at:   new Date().toISOString(),
       }]).select().single()
 
-      if (postError) console.warn('⚠️ Feed post failed:', postError.message)
+      if (postError) console.warn('Feed post failed:', postError.message)
 
-      // ── 3. NOTIFICATIONS ────────────────────────────────────────────────
+      // ── 4. Notifications ─────────────────────────────────────────────────
       const myUsername = profile?.username || 'user'
-
       if (taggedUser && formData.result === 'win') {
         await sendNotification({
           userId: taggedUser.id,
@@ -620,20 +490,65 @@ export default function LogGamePage() {
           data:   { from_username: myUsername, game_id: game.id, post_id: newPost?.id || null },
         }).catch(err => console.error('Notification error:', err))
       }
-
-      if (formData.content?.includes('@') && newPost) {
+      const caption = formData.content.trim()
+      if (caption.includes('@') && newPost) {
         await notifyMentions({
-          text:     formData.content.trim(),
+          text:     caption,
           fromUser: { id: user.id, username: myUsername },
           postId:   newPost.id,
         }).catch(err => console.error('Mention notification error:', err))
       }
 
-      alert(`✅ Match recorded!\n📍 Location: ${formData.city || 'unknown city'}${formData.province ? `, ${formData.province}` : ''}`)
-      navigate('/')
+      // ── 5. Fetch fresh stats for share card ──────────────────────────────
+      const { data: allGames } = await supabase
+        .from('games')
+        .select('result')
+        .eq('user_id', user.id)
+        .eq('is_deleted', false)
+
+      const totalGames = allGames?.length || 0
+      const totalWins  = allGames?.filter(g => g.result === 'win').length || 0
+      const winRate    = totalGames > 0 ? Math.round((totalWins / totalGames) * 100) : 0
+
+      // Fetch opponent profile for share card avatar
+      let opponentProfile = null
+      if (taggedUser) {
+        const { data: oppData } = await supabase
+          .from('users')
+          .select('id, username, display_name, avatar_url, avatar_type, elo_rating')
+          .eq('id', taggedUser.id)
+          .single()
+        opponentProfile = oppData
+      }
+
+      // Fetch ELO from elo_history (latest entry for this user)
+      const { data: eloRow } = await supabase
+        .from('elo_history')
+        .select('new_elo, elo_change')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      // ── 6. Show share card ────────────────────────────────────────────────
+      setShareCardData({
+        result:          formData.result,
+        score:           formData.score,
+        sport:           formData.sport,
+        myProfile:       profile,
+        opponentProfile,
+        opponentName:    taggedUser?.username || null,
+        eloGained:       eloRow?.elo_change  ?? null,
+        eloCurrent:      eloRow?.new_elo     ?? null,
+        winRate,
+        totalWins,
+        totalGames,
+        courtName:       formData.court_name,
+        city:            formData.city,
+      })
 
     } catch (err) {
-      console.error('❌ Submit error:', err)
+      console.error('Submit error:', err)
       alert('Error saving match: ' + err.message)
     } finally {
       setLoading(false)
@@ -641,203 +556,199 @@ export default function LogGamePage() {
   }
 
   return (
-    <div className="min-h-screen pb-32" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
-      <div className="px-5 pt-12 pb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-1.5 h-8 rounded-full" style={{ background: '#c8ff00' }} />
-          <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">Record Match</h1>
-        </div>
-        <p className="text-xs font-bold uppercase tracking-widest ml-4" style={{ color: '#c8ff00', opacity: 0.7 }}>
-          Sync your performance
-        </p>
-      </div>
+    <>
+      <div className="min-h-screen pb-32"
+        style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
 
-      <form onSubmit={handleSubmit} className="px-5 space-y-5">
-
-        {/* Sport selector */}
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {SPORTS.map(s => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setFormData({ ...formData, sport: s.id })}
-              className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase border-2 transition-all duration-200"
-              style={formData.sport === s.id
-                ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 20px rgba(200,255,0,0.4)' }
-                : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)' }
-              }
-            >
-              <span>{s.emoji}</span>
-              <span>{s.label}</span>
-            </button>
-          ))}
+        <div className="px-5 pt-12 pb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-1.5 h-8 rounded-full" style={{ background: '#c8ff00' }} />
+            <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">Record Match</h1>
+          </div>
+          <p className="text-xs font-bold uppercase tracking-widest ml-4" style={{ color: '#c8ff00', opacity: 0.7 }}>
+            Sync your performance
+          </p>
         </div>
 
-        {/* Location */}
-        <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="px-4 pt-4 pb-2 border-b border-white/5">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
-          </div>
-          <LocationSearch
-            courtName={formData.court_name}
-            city={formData.city}
-            province={formData.province}
-            onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
-            onCityChange={v => setFormData(f => ({ ...f, city: v }))}
-            onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="px-5 space-y-5">
 
-        {/* Match details */}
-        <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="px-4 pt-4 pb-2 border-b border-white/5">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
-          </div>
-
-          {/* Opponent Search */}
-          <OpponentSearch
-            user={user}
-            taggedUser={taggedUser}
-            onSelect={setTaggedUser}
-            onClear={() => setTaggedUser(null)}
-          />
-
-          {/* Score */}
-          <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
-            <Search size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
-            <input
-              className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
-              style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Final score e.g. 21-18, 21-15"
-              value={formData.score}
-              onChange={e => setFormData({ ...formData, score: e.target.value })}
-            />
-          </div>
-
-          {/* Caption */}
-          <div className="px-4 py-3">
-            <textarea
-              className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
-              style={{ color: '#ffffff', caretColor: '#c8ff00' }}
-              placeholder="Add a caption (optional)..."
-              rows={3}
-              value={formData.content}
-              onChange={e => setFormData({ ...formData, content: e.target.value })}
-            />
-          </div>
-        </div>
-
-        {/* Result */}
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
-          <div className="grid grid-cols-2 gap-3">
-            {['win', 'loss'].map(r => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setFormData({ ...formData, result: r })}
-                className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
-                style={formData.result === r
-                  ? r === 'win'
-                    ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
-                    : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
-                  : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
-                }
-              >
-                {r.toUpperCase()}
+          {/* Sport selector */}
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {SPORTS.map(s => (
+              <button key={s.id} type="button"
+                onClick={() => setFormData({ ...formData, sport: s.id })}
+                className="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black uppercase border-2 transition-all duration-200"
+                style={formData.sport === s.id
+                  ? { background: '#c8ff00', borderColor: '#c8ff00', color: '#0a0a0f', boxShadow: '0 0 20px rgba(200,255,0,0.4)' }
+                  : { background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.5)' }
+                }>
+                <span>{s.emoji}</span>
+                <span>{s.label}</span>
               </button>
             ))}
           </div>
-          {formData.result === 'win' && !taggedUser && (
-            <div className="mt-3 px-4 py-2.5 rounded-2xl flex items-center gap-2"
-              style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
-              <span className="text-sm">⚠️</span>
-              <p className="text-[10px] font-bold" style={{ color: 'rgba(200,255,0,0.8)' }}>
-                Wins require a tagged opponent to count in rankings
-              </p>
+
+          {/* Location */}
+          <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="px-4 pt-4 pb-2 border-b border-white/5">
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#c8ff00', opacity: 0.8 }}>📍 Location</p>
             </div>
-          )}
-        </div>
-
-        {/* Intensity */}
-        <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>Intensity</p>
+            <LocationSearch
+              courtName={formData.court_name}
+              city={formData.city}
+              province={formData.province}
+              onCourtChange={v => setFormData(f => ({ ...f, court_name: v }))}
+              onCityChange={v  => setFormData(f => ({ ...f, city: v }))}
+              onProvinceChange={v => setFormData(f => ({ ...f, province: v }))}
+            />
           </div>
-          <div className="flex gap-2">
-            {[
-              { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
-              { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
-              { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
-            ].map(({ lvl, active, dot }) => (
-              <button
-                key={lvl}
-                type="button"
-                onClick={() => setFormData({ ...formData, intensity: lvl })}
-                className="flex-1 py-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-1.5"
-                style={formData.intensity === lvl
-                  ? active
-                  : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }
-                }
-              >
-                <span className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
-                {lvl}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* Media */}
-        <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
-          <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
-          {mediaPreviews.length > 0 && (
-            <div className="grid grid-cols-3 gap-2 mb-3">
-              {mediaPreviews.map((m, i) => (
-                <div key={i} className="relative aspect-square rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.4)' }}>
-                  {m.type === 'video'
-                    ? <video src={m.url} className="w-full h-full object-cover" />
-                    : <img src={m.url} alt="" className="w-full h-full object-cover" />
-                  }
-                  <button
-                    type="button"
-                    onClick={() => removeMedia(i)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white"
-                    style={{ background: 'rgba(0,0,0,0.7)' }}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
+          {/* Match details */}
+          <div className="rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="px-4 pt-4 pb-2 border-b border-white/5">
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>⚔️ Match Details</p>
+            </div>
+
+            {/* ── Opponent search (fixed: uses users / display_name) ── */}
+            <OpponentSearch
+              user={user}
+              taggedUser={taggedUser}
+              setTaggedUser={setTaggedUser}
+            />
+
+            {/* Score */}
+            <div className="flex items-center gap-3 px-4 py-1 border-b border-white/5">
+              <Search size={15} style={{ color: 'rgba(255,255,255,0.4)' }} className="shrink-0" />
+              <input
+                className="w-full py-3.5 text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0"
+                style={{ color: '#ffffff', caretColor: '#c8ff00' }}
+                placeholder="Final score e.g. 21-18, 21-15"
+                value={formData.score}
+                onChange={e => setFormData({ ...formData, score: e.target.value })}
+              />
+            </div>
+
+            {/* Caption */}
+            <div className="px-4 py-3">
+              <textarea
+                className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 resize-none"
+                style={{ color: '#ffffff', caretColor: '#c8ff00' }}
+                placeholder="Add a caption (optional)..."
+                rows={3}
+                value={formData.content}
+                onChange={e => setFormData({ ...formData, content: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* Result */}
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-3 ml-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Result</p>
+            <div className="grid grid-cols-2 gap-3">
+              {['win', 'loss'].map(r => (
+                <button key={r} type="button"
+                  onClick={() => setFormData({ ...formData, result: r })}
+                  className="py-5 rounded-[2rem] font-black uppercase italic tracking-tighter text-2xl border-2 transition-all duration-300"
+                  style={formData.result === r
+                    ? r === 'win'
+                      ? { borderColor: '#c8ff00', color: '#c8ff00', background: 'rgba(200,255,0,0.08)', boxShadow: '0 0 24px rgba(200,255,0,0.25)' }
+                      : { borderColor: '#ff4d4d', color: '#ff4d4d', background: 'rgba(255,77,77,0.08)', boxShadow: '0 0 24px rgba(255,77,77,0.2)' }
+                    : { borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.03)' }
+                  }>
+                  {r.toUpperCase()}
+                </button>
               ))}
             </div>
-          )}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-xs font-bold border-2 border-dashed transition-colors"
-            style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
-          >
-            <Image size={15} />
-            Add Photos or Video
-          </button>
-          <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
-        </div>
+            {formData.result === 'win' && !taggedUser && (
+              <div className="mt-3 px-4 py-2.5 rounded-2xl flex items-center gap-2"
+                style={{ background: 'rgba(200,255,0,0.06)', border: '1px solid rgba(200,255,0,0.15)' }}>
+                <span className="text-sm">⚠️</span>
+                <p className="text-[10px] font-bold" style={{ color: 'rgba(200,255,0,0.8)' }}>
+                  Wins require a tagged opponent to count in rankings
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full font-black py-6 rounded-[2.5rem] uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.97] disabled:opacity-50"
-          style={{
-            background: loading ? 'rgba(200,255,0,0.5)' : '#c8ff00',
-            color: '#0a0a0f',
-            boxShadow: '0 0 30px rgba(200,255,0,0.35)',
+          {/* Intensity */}
+          <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Zap size={13} style={{ color: '#c8ff00', opacity: 0.8 }} />
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.5)' }}>Intensity</p>
+            </div>
+            <div className="flex gap-2">
+              {[
+                { lvl: 'Low',  active: { background: 'rgba(59,130,246,0.15)', borderColor: '#60a5fa', color: '#93c5fd' }, dot: '#60a5fa' },
+                { lvl: 'Med',  active: { background: 'rgba(234,179,8,0.15)',  borderColor: '#facc15', color: '#fde68a' }, dot: '#facc15' },
+                { lvl: 'High', active: { background: 'rgba(239,68,68,0.15)',  borderColor: '#f87171', color: '#fca5a5' }, dot: '#f87171' },
+              ].map(({ lvl, active, dot }) => (
+                <button key={lvl} type="button"
+                  onClick={() => setFormData({ ...formData, intensity: lvl })}
+                  className="flex-1 py-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-1.5"
+                  style={formData.intensity === lvl
+                    ? active
+                    : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }
+                  }>
+                  <span className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: formData.intensity === lvl ? dot : 'rgba(255,255,255,0.2)' }} />
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Media */}
+          <div className="rounded-3xl p-4 border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>📷 Photos / Video</p>
+            {mediaPreviews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {mediaPreviews.map((m, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                    {m.type === 'video'
+                      ? <video src={m.url} className="w-full h-full object-cover" />
+                      : <img src={m.url} alt="" className="w-full h-full object-cover" />
+                    }
+                    <button type="button" onClick={() => removeMedia(i)}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center text-white"
+                      style={{ background: 'rgba(0,0,0,0.7)' }}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-xs font-bold border-2 border-dashed transition-colors"
+              style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}>
+              <Image size={15} />
+              Add Photos or Video
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleMediaSelect} />
+          </div>
+
+          {/* Submit */}
+          <button type="submit" disabled={loading}
+            className="w-full font-black py-6 rounded-[2.5rem] uppercase italic tracking-tighter text-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.97] disabled:opacity-50"
+            style={{
+              background: loading ? 'rgba(200,255,0,0.5)' : '#c8ff00',
+              color: '#0a0a0f',
+              boxShadow: '0 0 30px rgba(200,255,0,0.35)',
+            }}>
+            {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={22} /> Sync Game</>}
+          </button>
+        </form>
+      </div>
+
+      {/* Post-game share card modal */}
+      {shareCardData && (
+        <PostGameShareCard
+          data={shareCardData}
+          onClose={() => {
+            setShareCardData(null)
+            navigate('/')
           }}
-        >
-          {loading ? <Loader2 className="animate-spin" /> : <><Share2 size={22} /> Sync Game</>}
-        </button>
-      </form>
-    </div>
+        />
+      )}
+    </>
   )
 }
