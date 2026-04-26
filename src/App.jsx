@@ -11,6 +11,7 @@ import EventsPage from './pages/EventsPage'
 import ProfilePage from './pages/ProfilePage'
 import PublicProfilePage from './pages/PublicProfilePage'
 import AdminPage from './pages/AdminPage'
+import ViralFeedPage from './pages/ViralFeedPage'
 import LoadingScreen from './components/LoadingScreen'
 import UsernameSetup from './components/UsernameSetup'
 import AuthCallback from './pages/AuthCallback'
@@ -61,6 +62,7 @@ function ProtectedRoutes() {
         <Route path="/log"             element={<ErrorBoundary><LogGamePage /></ErrorBoundary>} />
         <Route path="/ranks"           element={<ErrorBoundary><LeaderboardPage /></ErrorBoundary>} />
         <Route path="/events"          element={<ErrorBoundary><EventsPage /></ErrorBoundary>} />
+        <Route path="/activity"        element={<ErrorBoundary><ViralFeedPage /></ErrorBoundary>} />
         <Route path="/profile"         element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
         {/* Both routes handled by same component — username lookup OR userId lookup */}
         <Route path="/profile/:userId" element={<ErrorBoundary><PublicProfilePage /></ErrorBoundary>} />

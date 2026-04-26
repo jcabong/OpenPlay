@@ -6,11 +6,15 @@ import { supabase } from '../lib/supabase'
 async function cardToBlob(cardEl) {
   const html2canvas = (await import('html2canvas')).default
   const canvas = await html2canvas(cardEl, {
-    backgroundColor: null,
-    scale: 2,
+    backgroundColor: '#0a0a0f',
+    scale: 3,
     useCORS: true,
     allowTaint: true,
     logging: false,
+    width: 360,
+    height: 360,
+    windowWidth: 360,
+    windowHeight: 360,
   })
   return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 1))
 }
@@ -18,11 +22,15 @@ async function cardToBlob(cardEl) {
 async function cardToDataURL(cardEl) {
   const html2canvas = (await import('html2canvas')).default
   const canvas = await html2canvas(cardEl, {
-    backgroundColor: null,
-    scale: 2,
+    backgroundColor: '#0a0a0f',
+    scale: 3,
     useCORS: true,
     allowTaint: true,
     logging: false,
+    width: 360,
+    height: 360,
+    windowWidth: 360,
+    windowHeight: 360,
   })
   return canvas.toDataURL('image/png')
 }
@@ -96,13 +104,11 @@ export default function ShareGameModal({ game, profile, onClose, onPostToFeed })
     if (!cardRef.current) return
     setPosting(true)
     try {
-      // Capture card as image
       const dataURL = await cardToDataURL(cardRef.current)
       const res     = await fetch(dataURL)
       const blob    = await res.blob()
       const file    = new File([blob], `match-card-${Date.now()}.png`, { type: 'image/png' })
 
-      // Upload to Supabase storage
       const path = `${profile?.id || 'anon'}/${Date.now()}-match-card.png`
       const { error: uploadError } = await supabase.storage
         .from('openplay-media')
@@ -114,17 +120,33 @@ export default function ShareGameModal({ game, profile, onClose, onPostToFeed })
         .from('openplay-media')
         .getPublicUrl(path)
 
-      // Build post payload and bubble up
-      const sport = { badminton: '🏸', pickleball: '🥒', tennis: '🎾', tabletennis: '🏓' }[game?.sport] || '🎾'
+      const sportEmoji = { badminton: '🏸', pickleball: '🥒', tennis: '🎾', tabletennis: '🏓' }[game?.sport] || '🎾'
       const autoCaption = caption.trim() ||
-        `${sport} Just logged a match! Result: ${game?.result?.toUpperCase()} ${game?.score ? `(${game.score})` : ''} ${game?.opponent_name ? `vs ${game.opponent_name}` : ''}`.trim()
+        `${sportEmoji} Just logged a match! Result: ${game?.result?.toUpperCase()}${game?.score ? ` (${game.score})` : ''}${game?.opponent_name ? ` vs ${game.opponent_name}` : ''}`
 
+      // Insert post directly — no callback race condition
+      const { error: postError } = await supabase.from('posts').insert([{
+        author_id:     profile?.id,
+        user_id:       profile?.id,
+        content:       autoCaption,
+        sport:         game?.sport || null,
+        media_urls:    [publicUrl],
+        media_types:   ['image'],
+        location_name: game?.court_name || null,
+        game_id:       game?.id || null,
+        inserted_at:   new Date().toISOString(),
+        created_at:    new Date().toISOString(),
+      }])
+
+      if (postError) throw postError
+
+      // Also bubble up for any parent logic (notifications etc)
       onPostToFeed?.({
-        mediaUrl: publicUrl,
-        caption:  autoCaption,
-        sport:    game?.sport || null,
+        mediaUrl:     publicUrl,
+        caption:      autoCaption,
+        sport:        game?.sport || null,
         locationName: game?.court_name || null,
-        gameId:   game?.id || null,
+        gameId:       game?.id || null,
       })
 
       onClose()
@@ -170,11 +192,18 @@ export default function ShareGameModal({ game, profile, onClose, onPostToFeed })
         </div>
 
         <div className="overflow-y-auto" style={{ maxHeight: 'calc(92vh - 70px)' }}>
-          {/* Card preview */}
+          {/* Hidden full-size card for capture (html2canvas target) */}
+          {SelectedCard && (
+            <div style={{ position: 'fixed', left: '-9999px', top: 0, pointerEvents: 'none', zIndex: -1 }}>
+              <SelectedCard ref={cardRef} game={game} profile={profile} />
+            </div>
+          )}
+
+          {/* Visible scaled preview */}
           <div className="flex justify-center py-6 px-6">
             <div style={{ transform: 'scale(0.85)', transformOrigin: 'top center', marginBottom: '-50px' }}>
               {SelectedCard && (
-                <SelectedCard ref={cardRef} game={game} profile={profile} />
+                <SelectedCard game={game} profile={profile} />
               )}
             </div>
           </div>

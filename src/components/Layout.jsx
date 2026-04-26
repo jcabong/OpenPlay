@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield, ShoppingBag, Users } from 'lucide-react'
+import { Home, PlusCircle, Trophy, Calendar, User, LogOut, Menu, X, Bell, Shield, ShoppingBag, Users, Zap } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useNotifications } from '../hooks/useNotifications'
@@ -7,21 +7,22 @@ import { supabase } from '../lib/supabase'
 import NotificationsPanel from './NotificationsPanel'
 
 const navItems = [
-  { to: '/',        label: 'Feed',      Icon: Home,       end: true,  comingSoon: false },
-  { to: '/log',     label: 'Log Match', Icon: PlusCircle, end: false, comingSoon: false },
-  { to: '/ranks',   label: 'Ranks',     Icon: Trophy,     end: false, comingSoon: false },
-  { to: '/events',  label: 'Events',    Icon: Calendar,   end: false, comingSoon: false },
-  { to: '/profile', label: 'Profile',   Icon: User,       end: false, comingSoon: false },
-  { to: '#',        label: 'OP Market',   Icon: ShoppingBag, end: false, comingSoon: true },
-  { to: '#',        label: 'Party UP',  Icon: Users,      end: false, comingSoon: true },
+  { to: '/',         label: 'Feed',      Icon: Home,       end: true,  comingSoon: false },
+  { to: '/log',      label: 'Log Match', Icon: PlusCircle, end: false, comingSoon: false },
+  { to: '/ranks',    label: 'Ranks',     Icon: Trophy,     end: false, comingSoon: false },
+  { to: '/events',   label: 'Events',    Icon: Calendar,   end: false, comingSoon: false },
+  { to: '/activity', label: 'Activity',  Icon: Zap,        end: false, comingSoon: false },
+  { to: '/profile',  label: 'Profile',   Icon: User,       end: false, comingSoon: false },
+  { to: '#',         label: 'OP Market', Icon: ShoppingBag, end: false, comingSoon: true },
+  { to: '#',         label: 'Party UP',  Icon: Users,      end: false, comingSoon: true },
 ]
 
 export default function Layout({ children }) {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const [mobileMenuOpen, setMobileMenuOpen]   = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen]       = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isAdmin, setIsAdmin]                     = useState(false)
   const { notifications, unreadCount, markAllRead, markOneRead } = useNotifications(user?.id)
 
   // Check if user is admin
@@ -54,11 +55,11 @@ export default function Layout({ children }) {
     }
   }
 
-  const username = profile?.username || user?.email?.split('@')[0] || 'You'
-  const initial = username.charAt(0).toUpperCase()
-  const hasAvatar = profile?.avatar_url && profile?.avatar_type !== 'initials'
+  const username    = profile?.username || user?.email?.split('@')[0] || 'You'
+  const initial     = username.charAt(0).toUpperCase()
+  const hasAvatar   = profile?.avatar_url && profile?.avatar_type !== 'initials'
   const avatarColors = ['#c8ff00', '#f59e0b', '#60a5fa', '#a78bfa', '#f472b6']
-  const avatarBg = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
+  const avatarBg    = avatarColors[(username.charCodeAt(0) || 0) % avatarColors.length]
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(160deg, #0a0a0f 0%, #0f1a0f 50%, #0a0a0f 100%)' }}>
@@ -118,7 +119,7 @@ export default function Layout({ children }) {
                 )}
               </NavLink>
             ))}
-            
+
             {/* Admin Link - Only shows for admins */}
             {isAdmin && (
               <NavLink
@@ -255,11 +256,11 @@ export default function Layout({ children }) {
       {/* ── MOBILE LAYOUT ── */}
       <div className="lg:hidden">
 
-        {/* Mobile top bar with safe area insets */}
+        {/* Mobile top bar */}
         <header className="fixed top-0 inset-x-0 z-40 flex items-center justify-between border-b"
-          style={{ 
-            background: 'rgba(10,10,15,0.95)', 
-            backdropFilter: 'blur(20px)', 
+          style={{
+            background: 'rgba(10,10,15,0.95)',
+            backdropFilter: 'blur(20px)',
             borderColor: 'rgba(255,255,255,0.07)',
             paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
             paddingLeft: 'max(1rem, env(safe-area-inset-left))',
@@ -372,7 +373,7 @@ export default function Layout({ children }) {
                     </NavLink>
                   )
                 ))}
-                
+
                 {/* Admin Link - Only shows for admins on mobile */}
                 {isAdmin && (
                   <NavLink
@@ -383,10 +384,7 @@ export default function Layout({ children }) {
                         isActive ? 'text-black' : 'text-white/50'
                       }`
                     }
-                    style={({ isActive }) => isActive
-                      ? { background: '#c8ff00' }
-                      : {}
-                    }
+                    style={({ isActive }) => isActive ? { background: '#c8ff00' } : {}}
                   >
                     {({ isActive }) => (
                       <>
@@ -412,16 +410,16 @@ export default function Layout({ children }) {
           </div>
         )}
 
-        {/* Mobile main content with safe area top padding */}
+        {/* Mobile main content */}
         <main className="pt-16" style={{ paddingTop: 'calc(4rem + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}>
           {children}
         </main>
 
-        {/* Mobile bottom nav with safe area bottom padding */}
+        {/* Mobile bottom nav */}
         <nav className="fixed bottom-0 inset-x-0 z-40 border-t"
-          style={{ 
-            background: 'rgba(10,10,15,0.97)', 
-            backdropFilter: 'blur(20px)', 
+          style={{
+            background: 'rgba(10,10,15,0.97)',
+            backdropFilter: 'blur(20px)',
             borderColor: 'rgba(255,255,255,0.07)',
             paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
           }}>
@@ -432,7 +430,7 @@ export default function Layout({ children }) {
                 to={to}
                 end={end}
                 className={({ isActive }) =>
-                  `flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-200 ${
+                  `flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-all duration-200 ${
                     isActive ? '' : 'opacity-40'
                   }`
                 }
@@ -441,14 +439,14 @@ export default function Layout({ children }) {
                   <>
                     <div className="relative p-1.5 rounded-xl transition-all"
                       style={isActive ? { background: 'rgba(200,255,0,0.12)' } : {}}>
-                      <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8}
+                      <Icon size={19} strokeWidth={isActive ? 2.5 : 1.8}
                         style={{ color: isActive ? '#c8ff00' : 'rgba(255,255,255,0.6)' }} />
                       {isActive && (
                         <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
                           style={{ background: '#c8ff00' }} />
                       )}
                     </div>
-                    <span className="text-[9px] font-black uppercase tracking-wider"
+                    <span className="text-[8px] font-black uppercase tracking-wider"
                       style={{ color: isActive ? '#c8ff00' : 'rgba(255,255,255,0.4)' }}>
                       {label}
                     </span>

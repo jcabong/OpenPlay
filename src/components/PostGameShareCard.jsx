@@ -1,5 +1,29 @@
 import { forwardRef } from 'react'
 
+// ── ELO Tier helper (used by ViralFeedCard) ───────────────────────────────────
+export function getTier(elo) {
+  if (elo == null) return null
+  if (elo >= 2000) return { label: 'Legend',   color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' }
+  if (elo >= 1800) return { label: 'Diamond',  color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' }
+  if (elo >= 1600) return { label: 'Platinum', color: '#a78bfa', bg: 'rgba(167,139,250,0.15)' }
+  if (elo >= 1400) return { label: 'Gold',     color: '#fbbf24', bg: 'rgba(251,191,36,0.15)'  }
+  if (elo >= 1200) return { label: 'Silver',   color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
+  return                   { label: 'Bronze',  color: '#c97d4e', bg: 'rgba(201,125,78,0.15)'  }
+}
+
+// ── Viral badge helper (used by ViralFeedCard) ────────────────────────────────
+export function getViralBadge({ result, winStreak, eloGained, opponentElo, myElo, scoreDiff }) {
+  if (winStreak >= 5) return { icon: '🚀', label: `${winStreak}-Win Streak!`, color: '#c8ff00' }
+  if (winStreak >= 3) return { icon: '🔥', label: `${winStreak} in a Row`,   color: '#f59e0b' }
+  if (result === 'win' && opponentElo && myElo && opponentElo - myElo >= 200)
+    return { icon: '😤', label: 'Major Upset!', color: '#f472b6' }
+  if (result === 'win' && opponentElo && myElo && opponentElo - myElo >= 100)
+    return { icon: '⚡', label: 'Upset!',        color: '#60a5fa' }
+  if (eloGained >= 30) return { icon: '📈', label: `+${eloGained} ELO`,     color: '#c8ff00' }
+  if (scoreDiff != null && scoreDiff <= 2) return { icon: '😅', label: 'Nail-biter!',  color: '#a78bfa' }
+  return null
+}
+
 const SPORT_CONFIG = {
   badminton:   { emoji: '🏸', label: 'Badminton',    color: '#c8ff00', accent: '#0a0a0f' },
   pickleball:  { emoji: '🥒', label: 'Pickleball',   color: '#ff6b35', accent: '#fff' },
