@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight, Twitter, Facebook, Maximize2 } from 'lucide-react'
+import { MapPin, Heart, MessageCircle, Send, Share2, Trash2, MoreHorizontal, Pencil, X, Check, CornerDownRight, Twitter, Facebook, Copy, Link as LinkIcon } from 'lucide-react'
 import { supabase, SPORT_MAP } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { notifyMentions } from '../hooks/useNotifications'
@@ -157,7 +157,7 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
         
         <div className="flex-1 bg-white/5 px-3 py-2.5 rounded-xl border border-white/10">
           <div className="flex-1 min-w-0">
-            <Link to={`/user/${comment.users?.id}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
+            <Link to={`/user/${username}`} className="text-accent font-bold text-[11px] hover:underline mr-1.5">
               {displayName}
             </Link>
             {displayName !== username && (
@@ -206,7 +206,7 @@ function CommentRow({ comment, postId, currentUser, currentProfile, onRefresh })
                   )}
                 </div>
                 <div className="flex-1 bg-white/3 px-3 py-2 rounded-xl border border-white/5">
-                  <Link to={`/user/${r.users?.id}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
+                  <Link to={`/user/${rUsername}`} className="text-accent font-bold text-[10px] hover:underline mr-1.5">
                     {rDisplayName}
                   </Link>
                   {rDisplayName !== rUsername && (
@@ -246,8 +246,7 @@ export default function PostCard({ post, onRefresh }) {
   const [editContent, setEditContent]     = useState(post.content || '')
   const [saving, setSaving]               = useState(false)
   const [showShareMenu, setShowShareMenu] = useState(false)
-  const [showMediaModal, setShowMediaModal] = useState(false)
-  const [selectedMedia, setSelectedMedia] = useState(null)
+  const [shareCopied, setShareCopied]     = useState(false)
   const menuRef                           = useRef(null)
   const shareMenuRef                      = useRef(null)
 
@@ -260,12 +259,6 @@ export default function PostCard({ post, onRefresh }) {
   const hasAvatar   = post.author?.avatar_url && post.author?.avatar_type !== 'initials'
   const isOwner     = user?.id === post.author_id
 
-  const hasMedia = post.media_urls?.length > 0
-  const firstMedia = hasMedia ? post.media_urls[0] : null
-  const firstMediaType = hasMedia ? post.media_types?.[0] : null
-  const isVideo = firstMediaType === 'video'
-
-  // Close menus when clicking outside
   useEffect(() => {
     function outside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false)
@@ -332,20 +325,17 @@ export default function PostCard({ post, onRefresh }) {
     onRefresh?.()
   }
 
-  // Share functions
+  // ── Share helpers ──────────────────────────────────────────────────────────
   const getShareText = () => {
     const sportEmoji = sport.emoji || '🏸'
     const result = post.content ? post.content.substring(0, 100) : `Check out my ${sport.label || 'match'} on OpenPlay!`
     return `${sportEmoji} ${result}`
   }
-
-  const getShareUrl = () => {
-    return `${window.location.origin}/user/${post.author?.id}`
-  }
+  const getShareUrl = () => `${window.location.origin}/user/${username}`
 
   const shareToTwitter = () => {
     const text = encodeURIComponent(getShareText())
-    const url = encodeURIComponent(getShareUrl())
+    const url  = encodeURIComponent(getShareUrl())
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'width=600,height=400')
     setShowShareMenu(false)
   }
@@ -356,19 +346,23 @@ export default function PostCard({ post, onRefresh }) {
     setShowShareMenu(false)
   }
 
-  const copyToClipboard = async () => {
+  const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(getShareUrl())
-      alert('Link copied to clipboard!')
-    } catch (err) {
-      console.error('Copy failed:', err)
+      setShareCopied(true)
+      setTimeout(() => { setShareCopied(false); setShowShareMenu(false) }, 1500)
+    } catch {
+      alert('Could not copy link')
     }
-    setShowShareMenu(false)
   }
 
-  const openMediaModal = (url) => {
-    setSelectedMedia(url)
-    setShowMediaModal(true)
+  const nativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'OpenPlay', text: getShareText(), url: getShareUrl() })
+        setShowShareMenu(false)
+      } catch { /* user cancelled */ }
+    }
   }
 
   return (
@@ -376,7 +370,7 @@ export default function PostCard({ post, onRefresh }) {
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <Link to={`/user/${post.author?.id}`} className="flex items-center gap-3 flex-1 min-w-0 group">
+        <Link to={`/user/${username}`} className="flex items-center gap-3 flex-1 min-w-0 group">
           <div className="w-10 h-10 rounded-[0.75rem] overflow-hidden shrink-0">
             {hasAvatar ? (
               <img src={post.author.avatar_url} alt="" className="w-full h-full object-cover" />
@@ -454,32 +448,15 @@ export default function PostCard({ post, onRefresh }) {
         )
       )}
 
-      {/* Media - Video with play button overlay */}
-      {hasMedia && (
+      {/* Media */}
+      {post.media_urls?.length > 0 && (
         <div className="mb-4 rounded-2xl overflow-hidden bg-ink-800">
-          {isVideo ? (
-            <div className="relative cursor-pointer group" onClick={() => openMediaModal(firstMedia)}>
-              <video 
-                src={firstMedia} 
-                className="w-full aspect-video object-cover"
-                preload="metadata"
-              />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-all">
-                <div className="w-14 h-14 rounded-full bg-accent/90 flex items-center justify-center transform transition-transform group-hover:scale-110">
-                  <svg className="w-7 h-7 text-ink-900 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
-                </div>
-              </div>
-              <div className="absolute bottom-2 right-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] text-white flex items-center gap-1">
-                <Maximize2 size={10} />
-                <span>Fullscreen</span>
-              </div>
-            </div>
+          {post.media_types?.[0] === 'video' ? (
+            <video src={post.media_urls[0]} className="w-full aspect-video object-cover" controls />
           ) : (
             <div className={`grid gap-0.5 ${post.media_urls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {post.media_urls.slice(0, 4).map((url, i) => (
-                <div key={i} className="relative aspect-square cursor-pointer" onClick={() => openMediaModal(url)}>
+                <div key={i} className="relative aspect-square">
                   <img src={url} alt="" className="w-full h-full object-cover" />
                   {i === 3 && post.media_urls.length > 4 && (
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white font-bold text-lg">
@@ -521,55 +498,66 @@ export default function PostCard({ post, onRefresh }) {
 
       {/* Actions */}
       <div className="flex gap-2 pt-3 border-t border-white/5">
+        {/* Like */}
         <button onClick={toggleLike}
           className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border ${hasLiked ? 'text-accent border-accent/30 bg-accent/10' : 'text-ink-300 border-white/10 bg-white/5 hover:text-accent hover:border-accent/30'}`}>
           <Heart size={15} className={hasLiked ? 'fill-accent' : ''} />
           GG {likesCount > 0 && `(${likesCount})`}
         </button>
+
+        {/* Comments */}
         <button onClick={() => setShowComments(v => !v)}
           className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border ${showComments ? 'text-white border-white/20 bg-white/10' : 'text-ink-300 border-white/10 bg-white/5 hover:text-white hover:border-white/20'}`}>
           <MessageCircle size={15} />
-          Comments {commCount > 0 && `(${commCount})`}
+          {commCount > 0 && `(${commCount})`}
         </button>
-        
-        {/* Share Button with Menu */}
-        <div className="relative" ref={shareMenuRef}>
-          <button 
+
+        {/* Share — with dropdown */}
+        <div className="relative ml-auto" ref={shareMenuRef}>
+          <button
             onClick={() => setShowShareMenu(v => !v)}
-            className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border text-ink-300 border-white/10 bg-white/5 hover:text-white hover:border-white/20">
+            className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest transition-all px-3 py-1.5 rounded-xl border ${showShareMenu ? 'text-white border-white/20 bg-white/10' : 'text-ink-300 border-white/10 bg-white/5 hover:text-white hover:border-white/20'}`}
+          >
             <Share2 size={14} />
             Share
           </button>
-          
+
           {showShareMenu && (
-            <div className="absolute bottom-full mb-2 right-0 bg-ink-700 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden min-w-[180px] animate-slide-up">
-              <button
-                onClick={shareToTwitter}
-                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5"
-              >
-                <Twitter size={16} className="text-[#1DA1F2]" />
-                Share to X (Twitter)
+            <div className="absolute bottom-full mb-2 right-0 rounded-2xl border border-white/10 shadow-2xl z-50 overflow-hidden min-w-[190px] animate-slide-up"
+              style={{ background: '#1a1a2e' }}>
+              {/* Native share (mobile) */}
+              {typeof navigator !== 'undefined' && 'share' in navigator && (
+                <button onClick={nativeShare}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5">
+                  <Share2 size={15} className="text-accent" />
+                  Share…
+                </button>
+              )}
+              {/* Twitter/X */}
+              <button onClick={shareToTwitter}
+                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5">
+                <Twitter size={15} style={{ color: '#1DA1F2' }} />
+                Share to X
               </button>
-              <button
-                onClick={shareToFacebook}
-                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5"
-              >
-                <Facebook size={16} className="text-[#1877F2]" />
-                Share to Facebook
+              {/* Facebook */}
+              <button onClick={shareToFacebook}
+                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors border-b border-white/5">
+                <Facebook size={15} style={{ color: '#1877F2' }} />
+                Facebook
               </button>
-              <button
-                onClick={copyToClipboard}
-                className="w-full flex items-center gap-3 px-4 py-3 text-white text-xs font-bold hover:bg-white/5 transition-colors"
-              >
-                <Share2 size={16} className="text-accent" />
-                Copy Link
+              {/* Copy link */}
+              <button onClick={copyLink}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold hover:bg-white/5 transition-colors"
+                style={{ color: shareCopied ? '#c8ff00' : '#fff' }}>
+                {shareCopied ? <Check size={15} className="text-accent" /> : <LinkIcon size={15} className="text-ink-400" />}
+                {shareCopied ? 'Copied!' : 'Copy Link'}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Comments */}
+      {/* Comments section */}
       {showComments && (
         <div className="mt-4 pt-4 border-t border-white/5 space-y-3 animate-slide-up">
           {post.comments?.length > 0 && (
@@ -594,38 +582,6 @@ export default function PostCard({ post, onRefresh }) {
             <form onSubmit={submitComment} className="flex-1">
               <MentionInput value={newComment} onChange={setNewComment} submitting={submitting} />
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Media Fullscreen Modal */}
-      {showMediaModal && selectedMedia && (
-        <div 
-          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
-          onClick={() => setShowMediaModal(false)}
-        >
-          <div className="relative max-w-full max-h-full p-4">
-            <button 
-              className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
-              onClick={() => setShowMediaModal(false)}
-            >
-              <X size={24} />
-            </button>
-            {isVideo ? (
-              <video 
-                src={selectedMedia} 
-                className="max-w-full max-h-[90vh]"
-                controls 
-                autoPlay
-                playsInline
-              />
-            ) : (
-              <img 
-                src={selectedMedia} 
-                className="max-w-full max-h-[90vh] object-contain" 
-                alt="Fullscreen media"
-              />
-            )}
           </div>
         </div>
       )}
