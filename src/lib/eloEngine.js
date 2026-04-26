@@ -2,44 +2,23 @@
  * OpenPlay — ELO Rating Engine
  * ─────────────────────────────
  * Standard ELO with sport-aware K-factors and skill tier mapping.
- * Designed to slot into the existing LogGamePage match flow.
  *
- * Usage:
- *   import { processMatchElo } from '../lib/eloEngine'
- *
- *   await processMatchElo({
- *     matchId:     game.id,
- *     sport:       'badminton',
- *     players: [
- *       { userId: 'abc', teamId: 'A' },
- *       { userId: 'xyz', teamId: 'B' },
- *     ],
- *     winningTeam: 'A',
- *   })
+ * Column names match supabase_schema.sql elo_history table:
+ *   rating_before, rating_after, rating_delta  (NOT elo_before/elo_after/elo_delta)
  */
 
 import { supabase } from './supabase'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Starting ELO for new players */
 const DEFAULT_ELO = 1000
 
-/**
- * K-factor: controls how much a single match can shift your rating.
- * Higher K = more volatile (new players), lower K = more stable (veterans).
- */
 const K_FACTOR = {
-  new:         32,  // < 20 ranked games
-  developing:  24,  // 20–49 ranked games
-  established: 16,  // 50+ ranked games
+  new:         32,
+  developing:  24,
+  established: 16,
 }
 
-/**
- * Skill tier thresholds.
- * Players start at 1000 (Silver boundary).
- * Order matters — checked top to bottom.
- */
 const SKILL_TIERS = [
   { name: 'Diamond',  minElo: 1800 },
   { name: 'Platinum', minElo: 1500 },
@@ -50,22 +29,10 @@ const SKILL_TIERS = [
 
 // ─── Core ELO Math ───────────────────────────────────────────────────────────
 
-/**
- * Calculate the expected score (win probability) for a player.
- * Standard ELO formula: E = 1 / (1 + 10^((opponent_elo - player_elo) / 400))
- */
 function expectedScore(playerElo, opponentElo) {
   return 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400))
 }
 
-/**
- * Calculate new ELO after a match.
- * @param {number} currentElo    - Player's ELO before the match
- * @param {number} opponentElo   - Opponent's ELO before the match
- * @param {number} actualScore   - 1 for win, 0 for loss
- * @param {number} gamesPlayed   - Total ranked games played (for K-factor)
- * @returns {{ newElo: number, delta: number }}
- */
 function calculateNewElo(currentElo, opponentElo, actualScore, gamesPlayed) {
   const k = gamesPlayed < 20
     ? K_FACTOR.new
@@ -75,17 +42,11 @@ function calculateNewElo(currentElo, opponentElo, actualScore, gamesPlayed) {
 
   const expected = expectedScore(currentElo, opponentElo)
   const delta    = Math.round(k * (actualScore - expected))
-  // Floor at 100 to prevent humiliating new players
   const newElo   = Math.max(100, currentElo + delta)
 
   return { newElo, delta }
 }
 
-/**
- * Determine skill tier from ELO rating.
- * @param {number} elo
- * @returns {string} tier name
- */
 function getSkillTier(elo) {
   for (const tier of SKILL_TIERS) {
     if (elo >= tier.minElo) return tier.name
@@ -93,13 +54,6 @@ function getSkillTier(elo) {
   return 'Bronze'
 }
 
-// ─── Team ELO Helpers ────────────────────────────────────────────────────────
-
-/**
- * Calculate the average ELO for a team.
- * @param {Array<{ elo_rating: number }>} teamPlayers
- * @returns {number}
- */
 function teamAverageElo(teamPlayers) {
   if (!teamPlayers.length) return DEFAULT_ELO
   const total = teamPlayers.reduce((sum, p) => sum + (p.elo_rating ?? DEFAULT_ELO), 0)
@@ -110,18 +64,8 @@ function teamAverageElo(teamPlayers) {
 
 /**
  * Process ELO updates for a completed match.
- *
- * @param {Object} params
- * @param {string} params.matchId         - The game UUID from the `games` table
- * @param {string} params.sport           - Sport identifier ('badminton', etc.)
- * @param {Array}  params.players         - Array of { userId: string, teamId: 'A'|'B' }
- * @param {string} params.winningTeam     - 'A' or 'B'
- *
- * @returns {Promise<{
- *   success: boolean,
- *   updatedRatings: Array<{ userId, eloBefore, eloAfter, delta, skillTier }>,
- *   error?: string
- * }>}
+ * Writes to elo_history using the correct column names from supabase_schema.sql:
+ *   rating_before, rating_after, rating_delta  (not elo_before/elo_after/elo_delta)
  */
 export async function processMatchElo({ matchId, sport, players, winningTeam }) {
   try {
@@ -136,7 +80,7 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
       throw new Error('processMatchElo: both teams must have at least one player')
     }
 
-    // ── 1. Fetch all players' current ELO + game count ────────────────────
+    // ── 1. Fetch current ELO + win count for all players ──────────────────
     const userIds = players.map(p => p.userId)
 
     const { data: userData, error: fetchError } = await supabase
@@ -146,12 +90,10 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
 
     if (fetchError) throw fetchError
 
-    // Build a lookup map: userId → { elo_rating, total_wins }
     const userMap = {}
     for (const u of userData) {
       userMap[u.id] = {
         elo_rating: u.elo_rating ?? DEFAULT_ELO,
-        // total_wins approximates games played for K-factor (not perfect but avoids extra query)
         total_wins: u.total_wins ?? 0,
       }
     }
@@ -177,11 +119,11 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
       const result      = isWinner ? 'win' : 'loss'
 
       for (const player of team) {
-        const currentElo   = player.elo_rating ?? DEFAULT_ELO
-        const gamesPlayed  = (player.total_wins ?? 0) * 2  // rough estimate; wins * 2 ≈ total games
-        const opponentId   = team.length === 1
+        const currentElo  = player.elo_rating ?? DEFAULT_ELO
+        const gamesPlayed = (player.total_wins ?? 0) * 2
+        const opponentId  = team.length === 1
           ? (teamId === 'A' ? teamBPlayers[0]?.userId : teamAPlayers[0]?.userId)
-          : null  // for team matches, no single opponent
+          : null
 
         const { newElo, delta } = calculateNewElo(
           currentElo,
@@ -205,14 +147,13 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
       }
     }
 
-    // ── 4. Persist updates in parallel ────────────────────────────────────
+    // ── 4. Persist updates ────────────────────────────────────────────────
     const userUpdates = updatedRatings.map(r =>
       supabase
         .from('users')
         .update({
-          elo_rating:  r.eloAfter,
-          skill_tier:  r.skillTier,
-          // Increment wins if won — uses existing total_wins column
+          elo_rating: r.eloAfter,
+          skill_tier: r.skillTier,
           ...(r.result === 'win'
             ? { total_wins: (userMap[r.userId]?.total_wins ?? 0) + 1 }
             : {}
@@ -221,32 +162,30 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
         .eq('id', r.userId)
     )
 
+    // ── KEY FIX: use rating_before / rating_after / rating_delta ──────────
+    // These match the actual column names in supabase_schema.sql elo_history table.
     const eloHistoryInserts = supabase
       .from('elo_history')
       .insert(
         updatedRatings.map(r => ({
-          user_id:     r.userId,
-          game_id:     matchId,
+          user_id:       r.userId,
+          game_id:       matchId,
           sport,
-          elo_before:  r.eloBefore,
-          elo_after:   r.eloAfter,
-          elo_delta:   r.delta,
-          result:      r.result,
-          opponent_id: r.opponentId ?? null,
-          created_at:  new Date().toISOString(),
+          rating_before: r.eloBefore,   // ← was elo_before (wrong)
+          rating_after:  r.eloAfter,    // ← was elo_after  (wrong)
+          rating_delta:  r.delta,       // ← was elo_delta   (wrong)
+          result:        r.result,
+          opponent_id:   r.opponentId ?? null,
+          created_at:    new Date().toISOString(),
         }))
       )
 
     const results = await Promise.all([...userUpdates, eloHistoryInserts])
 
-    // Check for errors in any of the parallel writes
-    const writeErrors = results
-      .map(r => r.error)
-      .filter(Boolean)
+    const writeErrors = results.map(r => r.error).filter(Boolean)
 
     if (writeErrors.length > 0) {
       console.error('ELO write errors:', writeErrors)
-      // Don't throw — match is already saved, ELO is best-effort
       return {
         success:        false,
         updatedRatings,
@@ -264,14 +203,12 @@ export async function processMatchElo({ matchId, sport, players, winningTeam }) 
 
 /**
  * Fetch a player's ELO history for a sparkline chart.
- * @param {string} userId
- * @param {string} [sport]   - Optional filter by sport
- * @param {number} [limit]   - Max entries to return (default 20)
+ * Uses rating_before / rating_after to match the DB schema.
  */
 export async function fetchEloHistory(userId, sport = null, limit = 20) {
   let query = supabase
     .from('elo_history')
-    .select('elo_before, elo_after, elo_delta, result, sport, created_at')
+    .select('rating_before, rating_after, rating_delta, result, sport, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -284,15 +221,15 @@ export async function fetchEloHistory(userId, sport = null, limit = 20) {
     return []
   }
 
-  // Return in chronological order for charting
-  return (data || []).reverse()
+  // Map to the shape EloSparkline expects (elo_after)
+  return (data || []).reverse().map(row => ({
+    ...row,
+    elo_after:  row.rating_after,
+    elo_before: row.rating_before,
+    elo_delta:  row.rating_delta,
+  }))
 }
 
-/**
- * Get a player's current ELO for a quick display.
- * @param {string} userId
- * @returns {Promise<{ elo_rating: number, skill_tier: string }>}
- */
 export async function getPlayerElo(userId) {
   const { data, error } = await supabase
     .from('users')
@@ -303,7 +240,5 @@ export async function getPlayerElo(userId) {
   if (error || !data) return { elo_rating: DEFAULT_ELO, skill_tier: 'Bronze' }
   return data
 }
-
-// ─── Utility Exports ─────────────────────────────────────────────────────────
 
 export { getSkillTier, expectedScore, DEFAULT_ELO, SKILL_TIERS, K_FACTOR }
