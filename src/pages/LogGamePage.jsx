@@ -306,8 +306,8 @@ export default function LogGamePage() {
     setIsSearching(true)
     
     const { data, error } = await supabase
-      .from('profiles')
-      .select('id, username, full_name, city, province')
+      .from('users')
+      .select('id, username, display_name, city, province')
       .ilike('username', `%${query}%`)
       .neq('id', user.id)
       .limit(5)
@@ -592,9 +592,9 @@ export default function LogGamePage() {
                   >
                     <div>
                       <span className="font-bold text-white">@{u.username}</span>
-                      {u.full_name && (
+                      {u.display_name && (
                         <span className="text-xs ml-2" style={{ color: 'rgba(200,255,0,0.7)' }}>
-                          ({u.full_name})
+                          ({u.display_name})
                         </span>
                       )}
                     </div>
